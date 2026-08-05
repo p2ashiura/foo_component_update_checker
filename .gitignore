@@ -427,3 +427,24 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Visual Studio
+.vs/
+x64/
+Win32/
+Debug/
+Release/
+*.user
+*.suo
+*.sdf
+*.VC.db
+*.VC.opendb
+*.ilk
+*.pdb
+*.obj
+*.log
+
+# foobar2000 SDK / Columns UI SDK / WTL
+# SDK本体はリポジトリに含めない(READMEの手順に従って別途配置する)
+/SDK-2025-03-07/
+/WTL10_01_Release/
