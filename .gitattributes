@@ -1,0 +1,10 @@
+# Visual Studio / Windows開発が前提のため、テキストファイルはCRLFに統一する。
+# これにより「checkout時にLF→CRLFへ変換される」という警告そのものをなくす。
+* text=auto eol=crlf
+
+# バイナリ扱いにするもの(改行変換を行わない)
+*.png binary
+*.ico binary
+*.dll binary
+*.lib binary
+*.exe binary
