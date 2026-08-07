@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "components": [
+    {
+      "dll": "foo_albumtrain",
+      "source": "github",
+      "owner": "p2ashiura",
+      "repo": "Album-Train"
+    }
+  ]
+}

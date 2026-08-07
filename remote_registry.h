@@ -1,0 +1,39 @@
+﻿#pragma once
+
+#include "SDK-2025-03-07/foobar2000/SDK/foobar2000.h"
+
+#include <string>
+#include <vector>
+
+// Remote Registry: 開発側が管理する「主要コンポーネントのDLL名 <-> GitHub
+// リポジトリ」対応表を、GitHub上の静的JSONファイルから取得して参照する。
+//
+// - サーバーは使わず、raw.githubusercontent.com上の静的ファイルを読むだけ
+//   (GitHub APIのレート制限を消費しない)
+// - ユーザーがManage Repositories...で明示的に登録した内容が常に最優先。
+//   Remote Registryは、そこに無いコンポーネントを補完する位置づけ(DP-0018)
+// - オフライン時・取得失敗時は、直近のキャッシュ(なければ空)にフォールバックし、
+//   確認処理自体は止めない(Fail Open)
+//
+// "source"フィールドは将来GitHub以外(GitLab、個人サイト等)にも対応できるよう
+// 持たせてある。現時点では "github" のみ実際に使用する。
+
+struct RemoteRegistryEntry {
+    std::string dllName;
+    std::string source; // 現時点では "github" のみ対応
+    std::string owner;
+    std::string repo;
+};
+
+// Remote Registryのエントリ一覧を取得する。
+// 必要に応じてGitHub上の最新版を取得しに行く(ネットワークI/Oを含むため、
+// ワーカースレッドで呼ぶこと)。取得できない場合は直近のキャッシュを返す。
+std::vector<RemoteRegistryEntry> GetRemoteRegistryEntries(abort_callback& abort);
+
+// dllNameで検索する(拡張子の有無・大文字小文字は無視)。
+// source == "github" のエントリのみ現時点では利用可能とみなす。
+bool findRemoteRegistryEntry(
+    std::vector<RemoteRegistryEntry> const& entries,
+    std::string const& dllName,
+    RemoteRegistryEntry& out
+);

@@ -1,6 +1,7 @@
 ﻿#include "SDK-2025-03-07/foobar2000/SDK/foobar2000.h"
 #include "third_party/nlohmann/json.hpp"
 #include "repository_mapping.h"
+#include "remote_registry.h"
 #include "update_check.h"
 
 #include <vector>
@@ -220,11 +221,28 @@ std::vector<CheckResult> RunUpdateCheck(
     // 前提のAPIではないため、ワーカースレッドで読み込んでも問題ない。
     std::vector<RepositoryMappingEntry> mappingEntries = loadRepositoryMapping();
 
+    // Remote Registry(開発側が管理する既知コンポーネントDB)。
+    // ユーザー登録に無いコンポーネントの補完として使う(DP-0018 Hybrid Registry Model)。
+    // GitHub上の静的JSONを取得するため、ここでもネットワークI/Oが発生しうる。
+    std::vector<RemoteRegistryEntry> remoteEntries = GetRemoteRegistryEntries(abort);
+
     for (auto const& comp : installed) {
+        // 1. ユーザーが明示的に登録した内容を最優先する
         RepositoryMappingEntry mapping;
-        if (!findRepositoryMapping(mappingEntries, comp.fileName, mapping)) {
-            continue; // Phase 1: 未登録は静かにスキップ
+        bool found = findRepositoryMapping(mappingEntries, comp.fileName, mapping);
+
+        // 2. ユーザー登録が無ければ、Remote Registry(known_components.json)を参照する
+        if (!found) {
+            RemoteRegistryEntry remote;
+            if (findRemoteRegistryEntry(remoteEntries, comp.fileName, remote)) {
+                mapping.dllName = remote.dllName;
+                mapping.owner = remote.owner;
+                mapping.repo = remote.repo;
+                found = true;
+            }
         }
+
+        if (!found) continue; // Phase 1/2: どちらにも無ければ静かにスキップ
 
         CheckResult r;
         r.dllName = comp.fileName;
@@ -237,7 +255,7 @@ std::vector<CheckResult> RunUpdateCheck(
 
             http_client::ptr client = http_client::get();
             http_request::ptr request = client->create_request("GET");
-            request->add_header("User-Agent", "foo_component_update_checker/0.1.0");
+            request->add_header("User-Agent", "foo_component_update_checker/0.4.0");
             request->add_header("Accept", "application/vnd.github+json");
 
             file::ptr response = request->run(url, abort);
