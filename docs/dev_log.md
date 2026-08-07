@@ -458,3 +458,38 @@ Component Update Checker: updates available for Component Update Checker. Use "C
 - バージョン比較のprerelease/suffix対応(現状は数字+ドットのみ対応)
 - Force Automatic Check (Debug)をPreferencesページのボタンとしても持たせるか検討(現状Helpメニューのみ)
 - リリースに向けた最終確認(README更新、バージョン表記の整理等)
+
+---
+
+## 2026-08-06(続き12) バージョン比較のprerelease対応
+
+`compareVersions()`をSemVer 2.0.0の優先順位ルールに準拠する形に拡張した。
+
+対応形式: `MAJOR.MINOR.PATCH[.MORE...][-prerelease][+build]`(先頭の`v`/`V`は許容)。
+
+- ビルドメタデータ(`+`以降)は優先順位に影響しないため無視
+- prerelease同士は識別子ごとに比較。数字のみの識別子は数値比較、数字のみは英数字混在より必ず小さい扱い、それ以外はASCII順。すべて一致すれば識別子数が少ない方が「古い」
+- 同じコアバージョンで、正式リリース(prereleaseなし)は同コアのどのprereleaseよりも常に優先順位が高い(`1.0.0-beta` < `1.0.0`)
+- この形式に当てはまらないものは、引き続き「比較不能」として誤判定を避ける(DP-0009踏襲)
+
+### 動作確認: 実際のGitHub APIレスポンスを使った検証
+
+GitHubの`/releases/latest`はprerelease扱いのリリースを除外して返す仕様のため、実在のリポジトリから直接prereleaseタグを取得してテストすることはできない。そこで、**インストール済み側(Component Update Checker自身)のバージョン表記を一時的にprerelease風にし、実際の最新版のコアバージョンに合わせる**方法で検証した。
+
+具体的には、`microsoft/vscode`の実際の最新版(`1.132.0`)を事前に確認した上で、`dllmain.cpp`の`DECLARE_COMPONENT_VERSION`を一時的に`"1.132.0-beta.1"`に変更してビルド・実行し、検証後に`"0.1.0"`へ戻した。
+
+結果:
+
+```
+Component Update Checker [foo_component_update_checker]
+  Installed: 1.132.0-beta.1
+  Latest:    1.132.0  -> Update available
+  Release:   https://github.com/microsoft/vscode/releases/tag/1.132.0
+```
+
+同一コアバージョンでprereleaseと正式版を正しく判定できることを、実データで確認できた。
+
+### 次にやること
+
+- Force Automatic Check (Debug)をPreferencesページのボタンとしても持たせるか検討(現状Helpメニューのみ)
+- リリースに向けた最終確認(README更新、バージョン表記の整理等)

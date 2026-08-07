@@ -22,39 +22,49 @@ Phase 1完成(非公開リポジトリ)。中核機能(検出・登録・手動/
 
 ## Features / 機能
 
+**English**
+
 - Detect installed components (DLL name, display name, version) via the
   foobar2000 SDK
-  foobar2000 SDK経由で導入済みコンポーネントを検出(DLL名・表示名・バージョン)
 - Register a GitHub repository per component from **Preferences → Tools →
   Component Update Checker → Manage Repositories...**
-  **Preferences → Tools → Component Update Checker → Manage Repositories...**
-  からコンポーネントごとにGitHub Repositoryを登録
 - Fetch latest release info from GitHub Releases and compare versions;
   shows "unable to compare" instead of guessing when version formats don't
   match
-  GitHub Releasesから最新リリース情報を取得しバージョン比較。表記が読み取れない
-  場合は誤判定せず「比較不能」と表示
 - Manual check ("Check for Component Updates" in the Help menu, or "Check
   for Updates Now" in Preferences)
-  手動確認(Helpメニューの「Check for Component Updates」、または
-  Preferencesの「Check for Updates Now」)
 - Automatic check on startup (delayed, quiet unless updates are found,
   configurable interval)
-  起動時の自動確認(遅延実行、更新がある場合のみ通知、間隔は設定可能)
 - All settings live in **Preferences → Tools → Component Update Checker**
-  設定は**Preferences → Tools → Component Update Checker**に集約
+
+**日本語**
+
+- foobar2000 SDK経由で導入済みコンポーネントを検出(DLL名・表示名・バージョン)
+- **Preferences → Tools → Component Update Checker → Manage Repositories...**
+  からコンポーネントごとにGitHub Repositoryを登録
+- GitHub Releasesから最新リリース情報を取得しバージョン比較。表記が読み取れない
+  場合は誤判定せず「比較不能」と表示
+- 手動確認(Helpメニューの「Check for Component Updates」、または
+  Preferencesの「Check for Updates Now」)
+- 起動時の自動確認(遅延実行、更新がある場合のみ通知、間隔は設定可能)
+- 設定は**Preferences → Tools → Component Update Checker**に集約
 
 ### Explicitly out of scope / 対象外
 
+**English**
+
 - Auto-download, auto-install, auto-replace of component DLLs
-  コンポーネントDLLの自動ダウンロード・自動インストール・自動置換
 - Verifying the safety/quality of any component
-  コンポーネントの安全性・品質の保証
 - Sending library contents, playback history, or playlists anywhere
-  音楽ライブラリ・再生履歴・プレイリスト等の外部送信
 - Component identity is based on DLL name (not GUID); the foobar2000 SDK's
   `componentversion` interface does not expose a reliable per-component GUID
-  コンポーネントの識別はDLL名ベース(GUIDではない)。foobar2000 SDKの
+
+**日本語**
+
+- コンポーネントDLLの自動ダウンロード・自動インストール・自動置換
+- コンポーネントの安全性・品質の保証
+- 音楽ライブラリ・再生履歴・プレイリスト等の外部送信
+- コンポーネントの識別はDLL名ベース(GUIDではない)。foobar2000 SDKの
   `componentversion`インターフェースからは、信頼できるコンポーネント単位の
   GUIDが取得できないため
 
@@ -65,48 +75,58 @@ Phase 1完成(非公開リポジトリ)。中核機能(検出・登録・手動/
 
 ## Building / ビルド方法
 
+**English**
+
 1. Clone this repository.
-   このリポジトリをclone
 2. Place the `SDK-2025-03-07` (foobar2000 SDK + Columns UI SDK + pfc/shared)
    and `WTL10_01_Release` folders alongside `foo_component_update_checker.vcxproj`.
    These are not committed to this repository — obtain them separately.
-   `SDK-2025-03-07`(foobar2000 SDK / Columns UI SDK / pfc / shared)と
-   `WTL10_01_Release`フォルダを`foo_component_update_checker.vcxproj`と同じ階層に配置する。
-   これらはリポジトリにはコミットしていないため、別途入手すること。
 3. Open `foo_component_update_checker.slnx` in Visual Studio 2022 and build
    the `Debug|x64` or `Release|x64` configuration.
-   Visual Studio 2022で`foo_component_update_checker.slnx`を開き、
-   `Debug|x64`または`Release|x64`構成でビルドする。
 
 The solution builds the SDK helper libraries (`pfc`, `foobar2000_SDK`,
 `foobar2000_component_client`, `shared`, `columns_ui_sdk`) as build
 dependencies before linking the main component.
 
-ソリューションは、本体をリンクする前にSDK側のヘルパーライブラリ
-(`pfc`, `foobar2000_SDK`, `foobar2000_component_client`, `shared`, `columns_ui_sdk`)
-をビルド依存関係としてビルドする。
-
 This project also bundles [nlohmann/json](https://github.com/nlohmann/json)
 (single header, `third_party/nlohmann/json.hpp`, MIT License) for parsing
 GitHub API responses.
+
+**日本語**
+
+1. このリポジトリをclone
+2. `SDK-2025-03-07`(foobar2000 SDK / Columns UI SDK / pfc / shared)と
+   `WTL10_01_Release`フォルダを`foo_component_update_checker.vcxproj`と同じ階層に配置する。
+   これらはリポジトリにはコミットしていないため、別途入手すること。
+3. Visual Studio 2022で`foo_component_update_checker.slnx`を開き、
+   `Debug|x64`または`Release|x64`構成でビルドする。
+
+ソリューションは、本体をリンクする前にSDK側のヘルパーライブラリ
+(`pfc`, `foobar2000_SDK`, `foobar2000_component_client`, `shared`, `columns_ui_sdk`)
+をビルド依存関係としてビルドする。
 
 GitHub APIのレスポンス解析には[nlohmann/json](https://github.com/nlohmann/json)
 (単一ヘッダー、`third_party/nlohmann/json.hpp`、MITライセンス)を同梱している。
 
 ## Usage / 使い方
 
+**English**
+
 1. Open **Preferences → Tools → Component Update Checker**.
-   **Preferences → Tools → Component Update Checker**を開く
 2. Click **Manage Repositories...** to associate an installed component with
    its GitHub repository (owner/repo).
-   **Manage Repositories...**から、導入済みコンポーネントとGitHub
-   リポジトリ(owner/repo)を紐付ける
 3. Click **Check for Updates Now**, or wait for the automatic check on next
    startup.
-   **Check for Updates Now**をクリックするか、次回起動時の自動確認を待つ
 4. Adjust **Automatically check for updates** and **Check interval (days)**
    as needed.
-   必要に応じて**Automatically check for updates**と**Check interval
+
+**日本語**
+
+1. **Preferences → Tools → Component Update Checker**を開く
+2. **Manage Repositories...**から、導入済みコンポーネントとGitHub
+   リポジトリ(owner/repo)を紐付ける
+3. **Check for Updates Now**をクリックするか、次回起動時の自動確認を待つ
+4. 必要に応じて**Automatically check for updates**と**Check interval
    (days)**を調整する
 
 ## Docs / 関連文書

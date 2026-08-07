@@ -25,43 +25,167 @@
 namespace {
 
 // DP-0009 / DP-0010: 誤判定するくらいなら「比較不能」を返す。
-// 数字とドットだけで構成されるバージョン文字列(先頭のv/Vは許容)のみ対応する。
-bool tryNormalizeVersion(std::string raw, std::vector<long long>& outParts) {
+//
+// 対応する形式(SemVer準拠。先頭のv/Vは許容):
+//   MAJOR.MINOR.PATCH[.MORE...][-prerelease][+build]
+// 例: "4.2.0", "v1.5.2", "1.0.0-beta", "2.0.0-rc.1", "1.2.3+20240101"
+//
+// - ビルドメタデータ(+以降)は優先順位に影響しないため無視する(SemVer仕様通り)
+// - prerelease同士の比較はSemVer 2.0.0の優先順位ルールに従う:
+//     * ドット区切りの識別子ごとに比較する
+//     * 数字のみの識別子は数値として比較する
+//     * 数字のみの識別子は、英数字混在の識別子より必ず「小さい」とみなす
+//     * それ以外(英字を含む)は文字コード順(ASCII)で比較する
+//     * すべて一致した場合、識別子の数が少ない方を「小さい」とみなす
+// - この形式に当てはまらないバージョン文字列は「比較不能」として扱う
+struct ParsedVersion {
+    std::vector<long long> core;
+    std::vector<std::string> prerelease; // 空 = 正式リリース(prereleaseなし)
+    bool hasPrerelease = false;
+};
+
+bool isValidPrereleaseIdentifier(std::string const& id) {
+    if (id.empty()) return false;
+    for (char c : id) {
+        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '-')) return false;
+    }
+    return true;
+}
+
+bool isNumericIdentifier(std::string const& id) {
+    if (id.empty()) return false;
+    for (char c : id) {
+        if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+    }
+    return true;
+}
+
+bool tryParseVersion(std::string raw, ParsedVersion& out) {
     std::string s = raw;
     if (!s.empty() && (s[0] == 'v' || s[0] == 'V')) s.erase(0, 1);
     if (s.empty()) return false;
 
-    for (char c : s) {
+    // ビルドメタデータ(+以降)は優先順位に無関係なので切り落とす
+    size_t plusPos = s.find('+');
+    if (plusPos != std::string::npos) {
+        s = s.substr(0, plusPos);
+    }
+    if (s.empty()) return false;
+
+    // prerelease(-以降)を切り出す
+    std::string corePart = s;
+    std::string prereleasePart;
+    bool hasPrerelease = false;
+
+    size_t dashPos = s.find('-');
+    if (dashPos != std::string::npos) {
+        corePart = s.substr(0, dashPos);
+        prereleasePart = s.substr(dashPos + 1);
+        hasPrerelease = true;
+    }
+
+    // コア部分(数字とドットのみ)を解析
+    if (corePart.empty()) return false;
+    for (char c : corePart) {
         if (!(std::isdigit(static_cast<unsigned char>(c)) || c == '.')) return false;
     }
 
-    outParts.clear();
-    std::stringstream ss(s);
-    std::string token;
-    while (std::getline(ss, token, '.')) {
-        if (token.empty()) return false;
-        try {
-            outParts.push_back(std::stoll(token));
-        } catch (...) {
-            return false;
+    std::vector<long long> core;
+    {
+        std::stringstream ss(corePart);
+        std::string token;
+        while (std::getline(ss, token, '.')) {
+            if (token.empty()) return false;
+            try {
+                core.push_back(std::stoll(token));
+            } catch (...) {
+                return false;
+            }
         }
     }
-    return !outParts.empty();
+    if (core.empty()) return false;
+
+    // prerelease部分(あれば)を解析
+    std::vector<std::string> prerelease;
+    if (hasPrerelease) {
+        if (prereleasePart.empty()) return false; // "1.2.3-" のような不完全な形式は不可
+
+        std::stringstream ss(prereleasePart);
+        std::string token;
+        while (std::getline(ss, token, '.')) {
+            if (!isValidPrereleaseIdentifier(token)) return false;
+            prerelease.push_back(token);
+        }
+        if (prerelease.empty()) return false;
+    }
+
+    out.core = std::move(core);
+    out.prerelease = std::move(prerelease);
+    out.hasPrerelease = hasPrerelease;
+    return true;
+}
+
+// SemVer 2.0.0の優先順位ルールでprerelease識別子リストを比較する。
+// 戻り値: a<b なら負、a>b なら正、等しければ0。
+int comparePrereleaseIdentifiers(std::vector<std::string> const& a, std::vector<std::string> const& b) {
+    size_t n = (std::min)(a.size(), b.size());
+
+    for (size_t i = 0; i < n; ++i) {
+        std::string const& ida = a[i];
+        std::string const& idb = b[i];
+
+        bool numA = isNumericIdentifier(ida);
+        bool numB = isNumericIdentifier(idb);
+
+        if (numA && numB) {
+            long long va, vb;
+            try {
+                va = std::stoll(ida);
+                vb = std::stoll(idb);
+            } catch (...) {
+                // 極端に長い数字列などで変換に失敗した場合は文字列比較にフォールバック
+                if (ida != idb) return ida < idb ? -1 : 1;
+                continue;
+            }
+            if (va != vb) return va < vb ? -1 : 1;
+            continue;
+        }
+
+        if (numA != numB) {
+            // 数字のみの識別子は、英数字混在の識別子より必ず小さい(SemVer仕様)
+            return numA ? -1 : 1;
+        }
+
+        if (ida != idb) return ida < idb ? -1 : 1;
+    }
+
+    if (a.size() != b.size()) return a.size() < b.size() ? -1 : 1;
+    return 0;
 }
 
 UpdateStatus compareVersions(std::string const& installedRaw, std::string const& latestRaw) {
-    std::vector<long long> a, b;
-    if (!tryNormalizeVersion(installedRaw, a) || !tryNormalizeVersion(latestRaw, b)) {
+    ParsedVersion a, b;
+    if (!tryParseVersion(installedRaw, a) || !tryParseVersion(latestRaw, b)) {
         return UpdateStatus::ComparisonUnsupported;
     }
 
-    size_t n = (std::max)(a.size(), b.size());
+    // 1. コア部分(Major.Minor.Patch...)を比較
+    size_t n = (std::max)(a.core.size(), b.core.size());
     for (size_t i = 0; i < n; ++i) {
-        long long av = i < a.size() ? a[i] : 0;
-        long long bv = i < b.size() ? b[i] : 0;
+        long long av = i < a.core.size() ? a.core[i] : 0;
+        long long bv = i < b.core.size() ? b.core[i] : 0;
         if (av < bv) return UpdateStatus::UpdateAvailable;
         if (av > bv) return UpdateStatus::UpToDate;
     }
+
+    // 2. コアが同じ場合、prereleaseの有無・内容で比較する(SemVer仕様)
+    //    正式リリースは、同じコアのどのprereleaseよりも優先順位が高い
+    if (!a.hasPrerelease && !b.hasPrerelease) return UpdateStatus::UpToDate;
+    if (a.hasPrerelease && !b.hasPrerelease) return UpdateStatus::UpdateAvailable; // 導入版がprerelease、最新は正式版
+    if (!a.hasPrerelease && b.hasPrerelease) return UpdateStatus::UpToDate;        // 導入版が既に正式版、最新はprerelease
+
+    int cmp = comparePrereleaseIdentifiers(a.prerelease, b.prerelease);
+    if (cmp < 0) return UpdateStatus::UpdateAvailable;
     return UpdateStatus::UpToDate;
 }
 
