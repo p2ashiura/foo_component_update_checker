@@ -1,5 +1,6 @@
 ﻿#include "SDK-2025-03-07/foobar2000/SDK/foobar2000.h"
 #include "repository_mapping.h"
+#include "repository_mapping_ui.h"
 
 #include <windows.h>
 #include <commctrl.h>
@@ -288,6 +289,8 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
     return FALSE;
 }
 
+} // namespace
+
 void ShowRepositoryMappingDialog(HWND parent) {
     struct {
         DLGTEMPLATE dlg;
@@ -308,39 +311,3 @@ void ShowRepositoryMappingDialog(HWND parent) {
         NULL, (LPCDLGTEMPLATE)&dlgData, parent,
         (DLGPROC)RepositoryMappingDialogProc, 0);
 }
-
-// {4D71E83C-3CD1-4C0C-A924-F85D702172E1}
-const GUID guid_mainmenu_manage_repository_mapping =
-{ 0x4d71e83c, 0x3cd1, 0x4c0c, { 0xa9, 0x24, 0xf8, 0x5d, 0x70, 0x21, 0x72, 0xe1 } };
-
-class mainmenu_commands_manage_repository_mapping : public mainmenu_commands {
-public:
-    t_uint32 get_command_count() override {
-        return 1;
-    }
-
-    GUID get_command(t_uint32 p_index) override {
-        return guid_mainmenu_manage_repository_mapping;
-    }
-
-    void get_name(t_uint32 p_index, pfc::string_base& p_out) override {
-        p_out = "Manage Component Repositories...";
-    }
-
-    bool get_description(t_uint32 p_index, pfc::string_base& p_out) override {
-        p_out = "Register or remove GitHub repositories associated with installed components.";
-        return true;
-    }
-
-    GUID get_parent() override {
-        return mainmenu_groups::help;
-    }
-
-    void execute(t_uint32 p_index, service_ptr_t<service_base> p_callback) override {
-        ShowRepositoryMappingDialog(core_api::get_main_window());
-    }
-};
-
-static service_factory_single_t<mainmenu_commands_manage_repository_mapping> g_mainmenu_commands_manage_repository_mapping_factory;
-
-} // namespace

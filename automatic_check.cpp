@@ -1,5 +1,6 @@
 ﻿#include "SDK-2025-03-07/foobar2000/SDK/foobar2000.h"
 #include "update_check.h"
+#include "automatic_check.h"
 
 #include <ctime>
 #include <vector>
@@ -19,8 +20,9 @@
 //   (Bounded Work / Conservative Concurrency)
 // ------------------------------------------------------------------
 
+// cfg変数はこのファイルの外(automatic_check.h経由)からも参照されるため、
+// 無名namespaceの外に置く。GUIDは引き続きこのファイル内に閉じてよい。
 namespace {
-
 // {E1A6C4B9-3F7D-4E2A-9C8B-5D1F6A4E7C90}
 const GUID guid_cfg_auto_check_enabled =
 { 0xe1a6c4b9, 0x3f7d, 0x4e2a, { 0x9c, 0x8b, 0x5d, 0x1f, 0x6a, 0x4e, 0x7c, 0x90 } };
@@ -32,10 +34,30 @@ const GUID guid_cfg_auto_check_interval_days =
 // {A3C8E6D1-5B9F-4A4C-BE0D-7F3B8C6A9E12}
 const GUID guid_cfg_auto_check_last_run =
 { 0xa3c8e6d1, 0x5b9f, 0x4a4c, { 0xbe, 0x0d, 0x7f, 0x3b, 0x8c, 0x6a, 0x9e, 0x12 } };
+} // namespace
 
-cfg_bool g_cfgAutoCheckEnabled(guid_cfg_auto_check_enabled, true);
-cfg_int g_cfgAutoCheckIntervalDays(guid_cfg_auto_check_interval_days, 7);
-cfg_int g_cfgAutoCheckLastRun(guid_cfg_auto_check_last_run, 0); // UNIXエポック秒。0 = 未実施。
+static cfg_bool g_cfgAutoCheckEnabled(guid_cfg_auto_check_enabled, true);
+static cfg_int g_cfgAutoCheckIntervalDays(guid_cfg_auto_check_interval_days, 7);
+static cfg_int g_cfgAutoCheckLastRun(guid_cfg_auto_check_last_run, 0); // UNIXエポック秒。0 = 未実施。
+
+bool GetAutomaticCheckEnabled() {
+    return g_cfgAutoCheckEnabled.get();
+}
+
+void SetAutomaticCheckEnabled(bool enabled) {
+    g_cfgAutoCheckEnabled = enabled;
+}
+
+int GetAutomaticCheckIntervalDays() {
+    return static_cast<int>(g_cfgAutoCheckIntervalDays.get());
+}
+
+void SetAutomaticCheckIntervalDays(int days) {
+    if (days < 1) days = 1; // Safe Defaults: 0以下は事故のもとなので下限を設ける
+    g_cfgAutoCheckIntervalDays = static_cast<t_int32>(days);
+}
+
+namespace {
 
 // 起動直後の負荷集中を避けるための固定待機時間。
 // Phase 1では設定不可の固定値とする(将来Expert Optionとして開放可能)。

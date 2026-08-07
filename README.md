@@ -13,24 +13,36 @@ foobar2000 (64bit版) 用コンポーネント。導入済みのサードパー�
 
 ## Status / 現在の状態
 
-Early development (Phase 1, private repo). Not yet functional as a component.
+Phase 1 complete (private repo). Core functionality (detection, registration,
+manual/automatic check, comparison, notification) is implemented and
+working. Not yet released publicly.
 
-初期開発中(Phase 1、非公開リポジトリ)。まだコンポーネントとして機能しない。
+Phase 1完成(非公開リポジトリ)。中核機能(検出・登録・手動/自動確認・比較・通知)は
+実装済みで動作する。まだ一般公開はしていない。
 
-## Scope (Phase 1) / 対象範囲(Phase 1)
+## Features / 機能
 
-- Detect installed components (DLL name, GUID, display name, version)
-  導入済みコンポーネントの検出(DLL名・GUID・表示名・バージョン)
-- User-registered GitHub repository per component
-  コンポーネントごとにユーザーがGitHub Repositoryを手動登録
-- Fetch latest release info from GitHub Releases
-  GitHub Releasesから最新リリース情報を取得
-- Compare installed vs. latest version; show "unable to compare" when unsure
-  バージョン比較。判定できない場合は「比較不能」として表示
-- Manual check (Help menu) and automatic check (delayed, on startup)
-  手動確認(Helpメニュー)と自動確認(起動後に遅延実行)
-- Open the release page in the default browser
-  リリースページを既定ブラウザで開く
+- Detect installed components (DLL name, display name, version) via the
+  foobar2000 SDK
+  foobar2000 SDK経由で導入済みコンポーネントを検出(DLL名・表示名・バージョン)
+- Register a GitHub repository per component from **Preferences → Tools →
+  Component Update Checker → Manage Repositories...**
+  **Preferences → Tools → Component Update Checker → Manage Repositories...**
+  からコンポーネントごとにGitHub Repositoryを登録
+- Fetch latest release info from GitHub Releases and compare versions;
+  shows "unable to compare" instead of guessing when version formats don't
+  match
+  GitHub Releasesから最新リリース情報を取得しバージョン比較。表記が読み取れない
+  場合は誤判定せず「比較不能」と表示
+- Manual check ("Check for Component Updates" in the Help menu, or "Check
+  for Updates Now" in Preferences)
+  手動確認(Helpメニューの「Check for Component Updates」、または
+  Preferencesの「Check for Updates Now」)
+- Automatic check on startup (delayed, quiet unless updates are found,
+  configurable interval)
+  起動時の自動確認(遅延実行、更新がある場合のみ通知、間隔は設定可能)
+- All settings live in **Preferences → Tools → Component Update Checker**
+  設定は**Preferences → Tools → Component Update Checker**に集約
 
 ### Explicitly out of scope / 対象外
 
@@ -40,6 +52,11 @@ Early development (Phase 1, private repo). Not yet functional as a component.
   コンポーネントの安全性・品質の保証
 - Sending library contents, playback history, or playlists anywhere
   音楽ライブラリ・再生履歴・プレイリスト等の外部送信
+- Component identity is based on DLL name (not GUID); the foobar2000 SDK's
+  `componentversion` interface does not expose a reliable per-component GUID
+  コンポーネントの識別はDLL名ベース(GUIDではない)。foobar2000 SDKの
+  `componentversion`インターフェースからは、信頼できるコンポーネント単位の
+  GUIDが取得できないため
 
 ## Requirements / 動作環境
 
@@ -68,6 +85,29 @@ dependencies before linking the main component.
 ソリューションは、本体をリンクする前にSDK側のヘルパーライブラリ
 (`pfc`, `foobar2000_SDK`, `foobar2000_component_client`, `shared`, `columns_ui_sdk`)
 をビルド依存関係としてビルドする。
+
+This project also bundles [nlohmann/json](https://github.com/nlohmann/json)
+(single header, `third_party/nlohmann/json.hpp`, MIT License) for parsing
+GitHub API responses.
+
+GitHub APIのレスポンス解析には[nlohmann/json](https://github.com/nlohmann/json)
+(単一ヘッダー、`third_party/nlohmann/json.hpp`、MITライセンス)を同梱している。
+
+## Usage / 使い方
+
+1. Open **Preferences → Tools → Component Update Checker**.
+   **Preferences → Tools → Component Update Checker**を開く
+2. Click **Manage Repositories...** to associate an installed component with
+   its GitHub repository (owner/repo).
+   **Manage Repositories...**から、導入済みコンポーネントとGitHub
+   リポジトリ(owner/repo)を紐付ける
+3. Click **Check for Updates Now**, or wait for the automatic check on next
+   startup.
+   **Check for Updates Now**をクリックするか、次回起動時の自動確認を待つ
+4. Adjust **Automatically check for updates** and **Check interval (days)**
+   as needed.
+   必要に応じて**Automatically check for updates**と**Check interval
+   (days)**を調整する
 
 ## Docs / 関連文書
 

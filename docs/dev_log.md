@@ -395,3 +395,66 @@ Component Update Checker: updates available for Component Update Checker. Use "C
 - 自動確認の設定(有効/無効、間隔日数)を変更できるUI(現状はコード上の既定値固定)
 - 将来的にPreferences → Toolsへの設定画面統合(あしぅら案)を見据えた設計の見直し
 - Debugコマンド(Force Automatic Check)の扱いを、正式なUIができた際にどうするか検討
+
+---
+
+## 2026-08-06(続き10) 自動確認の設定ダイアログ
+
+`automatic_check.h`を新設し、`automatic_check.cpp`内のcfg変数(有効/無効・間隔日数)を`GetAutomaticCheckEnabled()` / `SetAutomaticCheckEnabled()` / `GetAutomaticCheckIntervalDays()` / `SetAutomaticCheckIntervalDays()`として公開した(cfg変数自体は無名namespaceの外・`static`付きのファイルスコープに配置)。
+
+`automatic_check_settings_ui.cpp`を新設。`repository_mapping_ui.cpp`と同じ方式(`.rc`不要、`DialogBoxIndirectParam` + 実行時`CreateWindowEx`、`AdjustWindowRectEx`でウィンドウサイズ確定、親ウィンドウのモニター中央に表示)でダイアログを実装した。Helpメニューに「Automatic Check Settings...」として追加。
+
+構成:
+- チェックボックス: Automatically check for updates
+- Edit(数値のみ、`ES_NUMBER`): Check interval (days)。1未満は`SetAutomaticCheckIntervalDays()`側でも下限バリデーション
+- Save: 即座に保存、「Saved.」メッセージ表示後、保存後の値を読み直して画面に反映
+- Close: 閉じるのみ
+
+### 動作確認結果
+
+実機で成功。有効/無効の切り替え、間隔日数の変更・保存、ダイアログの再オープンでの値保持、**foobar2000再起動後も値が保持されている**ことを確認した。cfg_string(Repository Mapping)だけでなく、cfg_bool/cfg_intでも同様に永続化が機能することが実証された。
+
+これで自動確認は「有効/無効」「間隔」をユーザー自身が変更できる状態になり、Phase 1の主要機能はすべて設定変更・永続化まで含めて完成した。
+
+### 次にやること
+
+- バージョン比較のprerelease/suffix対応(現状は数字+ドットのみ対応)
+- 将来的にPreferences → Toolsへの設定画面統合(あしぅら案)。現状Helpメニューに散らばっている「Check for Component Updates」「Manage Component Repositories...」「Automatic Check Settings...」「Force Automatic Check (Debug)」を1つの設定ページにまとめる方向で検討
+- Debugコマンド(Force Automatic Check)の扱いを、Preferences統合時にどうするか検討
+
+---
+
+## 2026-08-06(続き11) Preferences → Toolsへの統合
+
+あしぅらさん最初の構想通り、Preferences → Tools配下に「Component Update Checker」ページを新設し、Helpメニューに散らばっていた設定系コマンドを集約した。
+
+### 構成の変更
+
+- `repository_mapping_ui.cpp`: `ShowRepositoryMappingDialog()`を無名namespaceの外に出し`repository_mapping_ui.h`で公開。単独のHelpメニューコマンド(「Manage Component Repositories...」)は撤去
+- `automatic_check_settings_ui.cpp`: 撤去(Preferencesページに直接埋め込んだため不要に)
+- `preferences_page.cpp`(新設): `preferences_page_v4`を実装。チェックボックス(自動確認の有効/無効)、間隔入力、「Manage Repositories...」ボタン、「Check for Updates Now」ボタンを1ページに集約
+- Helpメニューに残るのは「Check for Component Updates」と「Force Automatic Check (Debug)」の2つ(クイックアクセス用として維持)
+
+### つまずいた点: 独自WNDCLASSでの実装は画面が真っ白になった
+
+`preferences_page_instance::instantiate()`は、これまでのポップアップダイアログ(`DialogBoxIndirectParam`、`WS_POPUP`)とは異なり、親ウィンドウに埋め込まれる子ウィンドウを返す必要がある。最初、独自の`WNDCLASS`を`RegisterClass`で登録し`CreateWindowEx`で子ウィンドウを作る方式で実装したが、Preferencesページを開いてもコントロールが一切表示されない(枠線すら見えない)問題が発生した。
+
+原因の完全な特定はしていないが、これまで2回(Repository Mappingダイアログ、旧Automatic Check Settingsダイアログ)実績のある「`WS_CHILD`スタイルのダイアログテンプレート + `CreateDialogIndirectParam`」方式に置き換えたところ解消した。独自WNDCLASSの登録・生ウィンドウ作成は避け、ダイアログテンプレート方式に統一する方が安全という教訓が得られた。
+
+技術的なポイント:
+- `DS_CONTROL`スタイル(他のダイアログに埋め込まれる部品であることを示す)を使用
+- `WM_INITDIALOG`の`lParam`に`instance_impl*`(`this`)を渡し、`SetWindowLongPtr(hDlg, DWLP_USER, ...)`で保持。以降`WM_COMMAND`等で`GetWindowLongPtr(hDlg, DWLP_USER)`から取り出す
+- `get_state()`は、コントロールの現在値とbaseline(最後にApply/読み込みした値)を比較して`preferences_state::changed`を返す。これによりPreferencesウィンドウのApplyボタンの有効/無効が自動的に連動する
+- `apply()`で実際に保存し、baselineを更新
+
+### 動作確認結果
+
+実機で成功。コントロール表示、チェックボックス/間隔変更によるApplyボタンの連動、Apply後の保存、Preferences再オープン時の値保持、「Manage Repositories...」「Check for Updates Now」ボタンの動作、すべて確認した。
+
+これでPhase 1の集大成として、設定がPreferences → Toolsの1ページに集約された状態が完成した。
+
+### 次にやること
+
+- バージョン比較のprerelease/suffix対応(現状は数字+ドットのみ対応)
+- Force Automatic Check (Debug)をPreferencesページのボタンとしても持たせるか検討(現状Helpメニューのみ)
+- リリースに向けた最終確認(README更新、バージョン表記の整理等)

@@ -161,10 +161,13 @@
     <ClCompile Include="repository_mapping.cpp" />
     <ClCompile Include="repository_mapping_ui.cpp" />
     <ClCompile Include="automatic_check.cpp" />
+    <ClCompile Include="preferences_page.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="repository_mapping.h" />
+    <ClInclude Include="repository_mapping_ui.h" />
     <ClInclude Include="update_check.h" />
+    <ClInclude Include="automatic_check.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
