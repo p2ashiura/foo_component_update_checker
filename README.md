@@ -13,11 +13,13 @@ foobar2000 (64bit版) 用コンポーネント。導入済みのサードパー�
 
 ## Status / 現在の状態
 
-Phase 1 complete (private repo). Core functionality (detection, registration,
-manual/automatic check, comparison, notification) is implemented and
-working. Not yet released publicly.
+Phase 1 and the core of Phase 2 (remote registry) are complete (private
+repo). Detection, registration, manual/automatic check, comparison,
+notification, and a shared known-components database are all implemented
+and working. Not yet released publicly.
 
-Phase 1完成(非公開リポジトリ)。中核機能(検出・登録・手動/自動確認・比較・通知)は
+Phase 1、およびPhase 2の中核(Remote Registry)まで完成(非公開リポジトリ)。
+検出・登録・手動/自動確認・比較・通知、そして共有の既知コンポーネントDBまで
 実装済みで動作する。まだ一般公開はしていない。
 
 ## Features / 機能
@@ -27,10 +29,12 @@ Phase 1完成(非公開リポジトリ)。中核機能(検出・登録・手動/
 - Detect installed components (DLL name, display name, version) via the
   foobar2000 SDK
 - Register a GitHub repository per component from **Preferences → Tools →
-  Component Update Checker → Manage Repositories...**
-- Fetch latest release info from GitHub Releases and compare versions;
-  shows "unable to compare" instead of guessing when version formats don't
-  match
+  Component Update Checker → Manage Repositories...** — or rely on the
+  shared [known-components registry](#remote-registry--既知コンポーネントdb)
+  for components that are already listed there
+- Fetch latest release info from GitHub Releases and compare versions
+  (SemVer-aware, including pre-releases such as `1.0.0-beta`); shows
+  "unable to compare" instead of guessing when version formats don't match
 - Manual check ("Check for Component Updates" in the Help menu, or "Check
   for Updates Now" in Preferences)
 - Automatic check on startup (delayed, quiet unless updates are found,
@@ -41,9 +45,12 @@ Phase 1完成(非公開リポジトリ)。中核機能(検出・登録・手動/
 
 - foobar2000 SDK経由で導入済みコンポーネントを検出(DLL名・表示名・バージョン)
 - **Preferences → Tools → Component Update Checker → Manage Repositories...**
-  からコンポーネントごとにGitHub Repositoryを登録
-- GitHub Releasesから最新リリース情報を取得しバージョン比較。表記が読み取れない
-  場合は誤判定せず「比較不能」と表示
+  からコンポーネントごとにGitHub Repositoryを登録。もしくは、既に
+  [共有の既知コンポーネントDB](#remote-registry--既知コンポーネントdb)に
+  載っているコンポーネントなら、登録不要でそのまま確認できる
+- GitHub Releasesから最新リリース情報を取得しバージョン比較(SemVer準拠、
+  `1.0.0-beta`のようなprerelease表記にも対応)。表記が読み取れない場合は
+  誤判定せず「比較不能」と表示
 - 手動確認(Helpメニューの「Check for Component Updates」、または
   Preferencesの「Check for Updates Now」)
 - 起動時の自動確認(遅延実行、更新がある場合のみ通知、間隔は設定可能)
@@ -67,6 +74,28 @@ Phase 1完成(非公開リポジトリ)。中核機能(検出・登録・手動/
 - コンポーネントの識別はDLL名ベース(GUIDではない)。foobar2000 SDKの
   `componentversion`インターフェースからは、信頼できるコンポーネント単位の
   GUIDが取得できないため
+
+## Remote Registry / 既知コンポーネントDB
+
+**English**
+
+Components not registered locally are looked up in a shared, static JSON
+file maintained at
+[foo_component_update_checker-registry](https://github.com/p2ashiura/foo_component_update_checker-registry)
+(fetched anonymously from `raw.githubusercontent.com`, no API key or server
+involved). Locally registered repositories (via **Manage Repositories...**)
+always take priority over this shared registry. The cache refreshes at most
+once every 24 hours; failures fall back silently to the last known-good
+cache.
+
+**日本語**
+
+ローカルに登録されていないコンポーネントは、
+[foo_component_update_checker-registry](https://github.com/p2ashiura/foo_component_update_checker-registry)
+で管理されている共有の静的JSONファイルを参照する(`raw.githubusercontent.com`から
+匿名取得。APIキーやサーバーは不要)。**Manage Repositories...**でローカルに
+登録した内容は、常にこの共有DBより優先される。キャッシュは最大24時間に1回まで
+更新を試み、失敗時は直近の取得済みキャッシュへ静かにフォールバックする。
 
 ## Requirements / 動作環境
 
@@ -113,19 +142,22 @@ GitHub APIのレスポンス解析には[nlohmann/json](https://github.com/nlohm
 **English**
 
 1. Open **Preferences → Tools → Component Update Checker**.
-2. Click **Manage Repositories...** to associate an installed component with
-   its GitHub repository (owner/repo).
-3. Click **Check for Updates Now**, or wait for the automatic check on next
-   startup.
+2. Click **Check for Updates Now** — components already listed in the
+   [shared registry](#remote-registry--既知コンポーネントdb) will be checked
+   automatically, no registration needed.
+3. For anything not covered, click **Manage Repositories...** to associate
+   an installed component with its GitHub repository (owner/repo).
 4. Adjust **Automatically check for updates** and **Check interval (days)**
    as needed.
 
 **日本語**
 
 1. **Preferences → Tools → Component Update Checker**を開く
-2. **Manage Repositories...**から、導入済みコンポーネントとGitHub
-   リポジトリ(owner/repo)を紐付ける
-3. **Check for Updates Now**をクリックするか、次回起動時の自動確認を待つ
+2. **Check for Updates Now**をクリックする —
+   [共有DB](#remote-registry--既知コンポーネントdb)に既に載っている
+   コンポーネントは、登録不要でそのまま確認される
+3. カバーされていないコンポーネントは、**Manage Repositories...**から
+   GitHubリポジトリ(owner/repo)を紐付ける
 4. 必要に応じて**Automatically check for updates**と**Check interval
    (days)**を調整する
 
