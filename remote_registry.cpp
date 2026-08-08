@@ -9,9 +9,10 @@
 namespace {
 
 // 移行のしやすさのため、参照先URLはここ1箇所にまとめる。
-// 将来レジストリを別リポジトリに切り出す場合は、この定数を書き換えるだけでよい。
+// データベース部分だけを独立したpublicリポジトリ(foo_component_update_checker-registry)
+// に分離してある。コード本体(foo_component_update_checker)はprivateのままでよい。
 const char* const k_remoteRegistryUrl =
-    "https://raw.githubusercontent.com/p2ashiura/foo_component_update_checker/main/registry/known_components.json";
+    "https://raw.githubusercontent.com/p2ashiura/foo_component_update_checker-registry/main/known_components.json";
 
 // 静的ファイルなので高頻度に取りに行く必要はない。既定24時間。
 const int64_t k_refreshIntervalSeconds = 24 * 60 * 60;
@@ -143,3 +144,70 @@ bool findRemoteRegistryEntry(
 
     return false;
 }
+
+
+// ------------------------------------------------------------------
+// 動作確認・トラブルシューティング用: 24時間の再取得間隔を無視して
+// 即座にRemote Registryを再取得し、結果を一覧表示する。
+// ------------------------------------------------------------------
+
+namespace {
+
+// {D4E8B2A6-3C7F-4E9D-A1B5-6F2C8D4E9A70}
+const GUID guid_mainmenu_force_refresh_remote_registry =
+{ 0xd4e8b2a6, 0x3c7f, 0x4e9d, { 0xa1, 0xb5, 0x6f, 0x2c, 0x8d, 0x4e, 0x9a, 0x70 } };
+
+class mainmenu_commands_force_refresh_remote_registry : public mainmenu_commands {
+public:
+    t_uint32 get_command_count() override {
+        return 1;
+    }
+
+    GUID get_command(t_uint32 p_index) override {
+        return guid_mainmenu_force_refresh_remote_registry;
+    }
+
+    void get_name(t_uint32 p_index, pfc::string_base& p_out) override {
+        p_out = "Force Refresh Remote Registry (Debug)";
+    }
+
+    bool get_description(t_uint32 p_index, pfc::string_base& p_out) override {
+        p_out = "Diagnostic: ignores the 24h interval and re-fetches known_components.json now.";
+        return true;
+    }
+
+    GUID get_parent() override {
+        return mainmenu_groups::help;
+    }
+
+    void execute(t_uint32 p_index, service_ptr_t<service_base> p_callback) override {
+        console::print("Remote Registry Debug: forcing refresh now (interval ignored)...");
+
+        // 次回のtryRefreshCache()が必ず再取得を試みるよう、記録された時刻をリセットする。
+        g_cfgRemoteRegistryLastFetch = 0;
+
+        fb2k::inCpuWorkerThread([] {
+            abort_callback& abort = fb2k::mainAborter();
+            std::vector<RemoteRegistryEntry> entries = GetRemoteRegistryEntries(abort);
+
+            fb2k::inMainThread([entries] {
+                if (entries.empty()) {
+                    console::print("Remote Registry Debug: fetch failed or registry is empty. Check the URL and repository visibility.");
+                    return;
+                }
+
+                pfc::string8 msg = "Remote Registry Debug: ";
+                msg << static_cast<int>(entries.size()) << " entrie(s) loaded:\n";
+                for (auto const& e : entries) {
+                    msg << "  " << e.dllName.c_str() << " [" << e.source.c_str() << "] -> "
+                        << e.owner.c_str() << "/" << e.repo.c_str() << "\n";
+                }
+                console::print(msg);
+            });
+        });
+    }
+};
+
+static service_factory_single_t<mainmenu_commands_force_refresh_remote_registry> g_mainmenu_commands_force_refresh_remote_registry_factory;
+
+} // namespace
