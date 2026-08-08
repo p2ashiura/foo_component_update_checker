@@ -8,11 +8,12 @@
 
 namespace {
 
-// 移行のしやすさのため、参照先URLはここ1箇所にまとめる。
+// 移行のしやすさのため、参照先はここ1箇所にまとめる(owner/repo/pathをheader経由で
+// 他ファイル(登録ダイアログのPR誘導ボタン等)からも参照する)。
 // データベース部分だけを独立したpublicリポジトリ(foo_component_update_checker-registry)
 // に分離してある。コード本体(foo_component_update_checker)はprivateのままでよい。
-const char* const k_remoteRegistryUrl =
-    "https://raw.githubusercontent.com/p2ashiura/foo_component_update_checker-registry/main/known_components.json";
+const std::string k_remoteRegistryUrl =
+    std::string("https://raw.githubusercontent.com/") + k_registryRepoOwner + "/" + k_registryRepoName + "/main/" + k_registryFilePath;
 
 // 静的ファイルなので高頻度に取りに行く必要はない。既定24時間。
 const int64_t k_refreshIntervalSeconds = 24 * 60 * 60;
@@ -72,9 +73,9 @@ void tryRefreshCache(abort_callback& abort) {
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/0.4.0");
+        request->add_header("User-Agent", "foo_component_update_checker/0.6.0");
 
-        file::ptr response = request->run(k_remoteRegistryUrl, abort);
+        file::ptr response = request->run(k_remoteRegistryUrl.c_str(), abort);
 
         pfc::string8 body;
         response->read_string_raw(body, abort);

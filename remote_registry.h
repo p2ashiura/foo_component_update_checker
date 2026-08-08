@@ -18,6 +18,13 @@
 // "source"フィールドは将来GitHub以外(GitLab、個人サイト等)にも対応できるよう
 // 持たせてある。現時点では "github" のみ実際に使用する。
 
+// Registryリポジトリの場所。移行時はここだけ書き換えればよい。
+// remote_registry.cpp(取得元URLの組み立て)と、登録ダイアログのPR誘導ボタン
+// (repository_mapping_ui.cpp)の両方から参照する。
+inline const char* const k_registryRepoOwner = "p2ashiura";
+inline const char* const k_registryRepoName = "foo_component_update_checker-registry";
+inline const char* const k_registryFilePath = "known_components.json";
+
 struct RemoteRegistryEntry {
     std::string dllName;
     std::string source; // 現時点では "github" のみ対応

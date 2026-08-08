@@ -2,6 +2,7 @@
 #include "automatic_check.h"
 #include "repository_mapping_ui.h"
 #include "update_check.h"
+#include "result_window.h"
 
 #include <windows.h>
 #include <commctrl.h>
@@ -110,8 +111,6 @@ public:
         }
 
         if (id == IDC_PP_CHECK_NOW_BTN) {
-            console::print("Update Check: scanning installed components...");
-
             std::vector<InstalledComponentInfo> installed = GetInstalledComponents();
 
             fb2k::inCpuWorkerThread([installed] {
@@ -119,10 +118,11 @@ public:
                 std::vector<CheckResult> results = RunUpdateCheck(installed, abort);
 
                 fb2k::inMainThread([results] {
-                    PrintUpdateCheckResults(
+                    ShowUpdateResultWindow(
+                        core_api::get_main_window(),
                         results,
-                        "Update Check: no installed components matched a registered repository. "
-                        "(Use \"Manage Repositories...\" to register one.)"
+                        "No installed components matched a registered repository.\n"
+                        "Use \"Manage Repositories...\" to register one."
                     );
                 });
             });

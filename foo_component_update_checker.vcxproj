@@ -163,6 +163,7 @@
     <ClCompile Include="automatic_check.cpp" />
     <ClCompile Include="preferences_page.cpp" />
     <ClCompile Include="remote_registry.cpp" />
+    <ClCompile Include="result_window.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="repository_mapping.h" />
@@ -170,6 +171,7 @@
     <ClInclude Include="update_check.h" />
     <ClInclude Include="automatic_check.h" />
     <ClInclude Include="remote_registry.h" />
+    <ClInclude Include="result_window.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

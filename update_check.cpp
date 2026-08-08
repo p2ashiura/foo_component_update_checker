@@ -3,6 +3,7 @@
 #include "repository_mapping.h"
 #include "remote_registry.h"
 #include "update_check.h"
+#include "result_window.h"
 
 #include <vector>
 #include <string>
@@ -255,7 +256,7 @@ std::vector<CheckResult> RunUpdateCheck(
 
             http_client::ptr client = http_client::get();
             http_request::ptr request = client->create_request("GET");
-            request->add_header("User-Agent", "foo_component_update_checker/0.4.0");
+            request->add_header("User-Agent", "foo_component_update_checker/0.6.0");
             request->add_header("Accept", "application/vnd.github+json");
 
             file::ptr response = request->run(url, abort);
@@ -351,21 +352,18 @@ public:
     }
 
     void execute(t_uint32 p_index, service_ptr_t<service_base> p_callback) override {
-        console::print("Update Check: scanning installed components...");
-
         std::vector<InstalledComponentInfo> installed = GetInstalledComponents();
-
-        console::print("Update Check: querying registered repositories on worker thread...");
 
         fb2k::inCpuWorkerThread([installed] {
             abort_callback& abort = fb2k::mainAborter();
             std::vector<CheckResult> results = RunUpdateCheck(installed, abort);
 
             fb2k::inMainThread([results] {
-                PrintUpdateCheckResults(
+                ShowUpdateResultWindow(
+                    core_api::get_main_window(),
                     results,
-                    "Update Check: no installed components matched a registered repository. "
-                    "(Use \"Manage Component Repositories...\" to register one.)"
+                    "No installed components matched a registered repository.\n"
+                    "Use \"Manage Repositories...\" (Preferences > Tools > Component Update Checker) to register one."
                 );
             });
         });

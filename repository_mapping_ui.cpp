@@ -1,10 +1,13 @@
 ﻿#include "SDK-2025-03-07/foobar2000/SDK/foobar2000.h"
 #include "repository_mapping.h"
 #include "repository_mapping_ui.h"
+#include "remote_registry.h"
 
 #include <windows.h>
+#include <shellapi.h>
 #include <commctrl.h>
 #pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "shell32.lib")
 
 #include <vector>
 #include <string>
@@ -37,6 +40,7 @@ const int IDC_RM_REPO_EDIT = 2003;
 const int IDC_RM_SAVE_BTN = 2004;
 const int IDC_RM_LIST = 2005;
 const int IDC_RM_REMOVE_BTN = 2006;
+const int IDC_RM_SUGGEST_BTN = 2007;
 
 int GetDialogFontLineHeight(HWND hDlg) {
     HFONT hFont = (HFONT)SendMessage(hDlg, WM_GETFONT, 0, 0);
@@ -84,6 +88,31 @@ void RefreshEntryListBox(HWND hDlg) {
     }
 }
 
+// UTF-8のstd::stringをUnicodeテキストとしてクリップボードへコピーする。
+bool CopyTextToClipboard(HWND hDlg, std::string const& utf8Text) {
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8Text.c_str(), -1, NULL, 0);
+    if (wideLen <= 0) return false;
+
+    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, wideLen * sizeof(wchar_t));
+    if (!hMem) return false;
+
+    wchar_t* pMem = (wchar_t*)GlobalLock(hMem);
+    MultiByteToWideChar(CP_UTF8, 0, utf8Text.c_str(), -1, pMem, wideLen);
+    GlobalUnlock(hMem);
+
+    if (!OpenClipboard(hDlg)) {
+        GlobalFree(hMem);
+        return false;
+    }
+
+    EmptyClipboard();
+    SetClipboardData(CF_UNICODETEXT, hMem);
+    CloseClipboard();
+    // hMemの所有権はクリップボードに渡ったのでGlobalFreeしない。
+
+    return true;
+}
+
 LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_INITDIALOG: {
@@ -96,7 +125,10 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
         const int LABEL_W = 110;
         const int FIELD_X = MARGIN + LABEL_W + 6;
         const int FIELD_W = 220;
-        const int CLIENT_W = FIELD_X + FIELD_W + MARGIN;
+        // Save + Suggest for Shared Registry... ボタンが横に並ぶため、
+        // 通常のフィールド幅より広く必要になる。
+        const int BUTTON_ROW_W = 80 + 8 + 180;
+        const int CLIENT_W = FIELD_X + (std::max)(FIELD_W, BUTTON_ROW_W) + MARGIN;
 
         int y = MARGIN;
 
@@ -143,11 +175,17 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
 
         y += rowH + 4;
 
-        // ---- Save ----
+        // ---- Save / Suggest for Shared Registry ----
         const int BTN_W = 80;
         CreateWindowEx(0, _T("BUTTON"), _T("Save"),
             WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
             FIELD_X, y, BTN_W, editH, hDlg, (HMENU)(INT_PTR)IDC_RM_SAVE_BTN,
+            NULL, NULL);
+
+        const int SUGGEST_BTN_W = 180;
+        CreateWindowEx(0, _T("BUTTON"), _T("Suggest for Shared Registry..."),
+            WS_CHILD | WS_VISIBLE,
+            FIELD_X + BTN_W + 8, y, SUGGEST_BTN_W, editH, hDlg, (HMENU)(INT_PTR)IDC_RM_SUGGEST_BTN,
             NULL, NULL);
 
         y += rowH + 10;
@@ -271,6 +309,57 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
                 removeRepositoryMappingEntry(entries[sel].dllName);
                 RefreshEntryListBox(hDlg);
             }
+            return TRUE;
+        }
+
+        if (LOWORD(wp) == IDC_RM_SUGGEST_BTN) {
+            HWND componentCombo = GetDlgItem(hDlg, IDC_RM_COMPONENT_COMBO);
+            int sel = (int)SendMessage(componentCombo, CB_GETCURSEL, 0, 0);
+            if (sel == CB_ERR) {
+                MessageBox(hDlg, _T("Please select a component."), _T("Suggest for Shared Registry"), MB_OK | MB_ICONWARNING);
+                return TRUE;
+            }
+
+            char dllNameBuf[256] = {};
+            SendMessageA(componentCombo, CB_GETLBTEXT, sel, (LPARAM)dllNameBuf);
+
+            char ownerBuf[256] = {};
+            GetWindowTextA(GetDlgItem(hDlg, IDC_RM_OWNER_EDIT), ownerBuf, sizeof(ownerBuf));
+
+            char repoBuf[256] = {};
+            GetWindowTextA(GetDlgItem(hDlg, IDC_RM_REPO_EDIT), repoBuf, sizeof(repoBuf));
+
+            if (ownerBuf[0] == '\0' || repoBuf[0] == '\0') {
+                MessageBox(hDlg, _T("Please fill in both GitHub Owner and Repo first."), _T("Suggest for Shared Registry"), MB_OK | MB_ICONWARNING);
+                return TRUE;
+            }
+
+            // known_components.json の "components" 配列にそのまま貼り付けられる形の
+            // JSONスニペットを組み立てる。
+            std::string snippet;
+            snippet += "    {\n";
+            snippet += "      \"dll\": \"" + std::string(dllNameBuf) + "\",\n";
+            snippet += "      \"source\": \"github\",\n";
+            snippet += "      \"owner\": \"" + std::string(ownerBuf) + "\",\n";
+            snippet += "      \"repo\": \"" + std::string(repoBuf) + "\"\n";
+            snippet += "    },";
+
+            bool copied = CopyTextToClipboard(hDlg, snippet);
+
+            MessageBox(hDlg,
+                copied
+                    ? _T("A registry entry has been copied to your clipboard.\n\n")
+                      _T("Your browser will now open the shared registry file on GitHub. ")
+                      _T("Paste the entry into the \"components\" array, then click ")
+                      _T("\"Propose changes\" (or \"Commit changes\") to open a pull request.")
+                    : _T("Could not copy to clipboard. Your browser will still open the ")
+                      _T("registry file; you can copy the entry manually."),
+                _T("Suggest for Shared Registry"), MB_OK);
+
+            std::string editUrl = std::string("https://github.com/") + k_registryRepoOwner
+                + "/" + k_registryRepoName + "/edit/main/" + k_registryFilePath;
+            ShellExecuteA(hDlg, "open", editUrl.c_str(), NULL, NULL, SW_SHOWNORMAL);
+
             return TRUE;
         }
 

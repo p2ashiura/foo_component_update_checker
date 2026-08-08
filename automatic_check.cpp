@@ -1,6 +1,7 @@
 ﻿#include "SDK-2025-03-07/foobar2000/SDK/foobar2000.h"
 #include "update_check.h"
 #include "automatic_check.h"
+#include "result_window.h"
 
 #include <ctime>
 #include <vector>
@@ -98,21 +99,10 @@ void runAutomaticCheck() {
             std::vector<CheckResult> results = RunUpdateCheck(installed, abort);
 
             // Non-Intrusive: 通信失敗や比較不能はここでは通知しない。
-            // 更新が実際に見つかった場合のみ、静かにconsoleへ要約を出す。
+            // 更新が実際に見つかった場合のみ、ポップアップウィンドウで知らせる。
             if (HasUpdateAvailable(results)) {
                 fb2k::inMainThread([results] {
-                    pfc::string8 msg = "Component Update Checker: updates available for ";
-
-                    int count = 0;
-                    for (auto const& r : results) {
-                        if (r.status != UpdateStatus::UpdateAvailable) continue;
-                        if (count > 0) msg << ", ";
-                        msg << r.displayName.c_str();
-                        ++count;
-                    }
-                    msg << ". Use \"Check for Component Updates\" (Help menu) for details.";
-
-                    console::print(msg);
+                    ShowUpdateResultWindow(core_api::get_main_window(), results, "");
                 });
             }
 
@@ -182,16 +172,7 @@ public:
 
             fb2k::inMainThread([results] {
                 if (HasUpdateAvailable(results)) {
-                    pfc::string8 msg = "Component Update Checker: updates available for ";
-                    int count = 0;
-                    for (auto const& r : results) {
-                        if (r.status != UpdateStatus::UpdateAvailable) continue;
-                        if (count > 0) msg << ", ";
-                        msg << r.displayName.c_str();
-                        ++count;
-                    }
-                    msg << ". Use \"Check for Component Updates\" (Help menu) for details.";
-                    console::print(msg);
+                    ShowUpdateResultWindow(core_api::get_main_window(), results, "");
                 } else {
                     console::print("Automatic Check Debug: no updates found (this would have been silent in a real automatic run).");
                 }

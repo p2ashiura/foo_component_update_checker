@@ -493,3 +493,133 @@ Component Update Checker [foo_component_update_checker]
 
 - Force Automatic Check (Debug)をPreferencesページのボタンとしても持たせるか検討(現状Helpメニューのみ)
 - リリースに向けた最終確認(README更新、バージョン表記の整理等)
+
+---
+
+## 2026-08-07 Remote Registry(既知コンポーネントDB)の実装
+
+Phase 2の主要機能として、開発側が管理する「DLL名 <-> GitHub Repository」対応表(Remote Registry)を実装した。ユーザーが個別に登録しなくても、主要なコンポーネントは自動的に更新確認できるようにする仕組み(Project Charter Phase 2、Design Principles DP-0018 Hybrid Registry Modelで構想していたもの)。
+
+### 設計
+
+- **サーバーは使わない**。GitHub上の静的JSON1つ(`known_components.json`)を`raw.githubusercontent.com`経由で匿名取得するだけ。GitHub APIのレート制限を消費しない
+- **優先順位**: ユーザーが**Manage Repositories...**で明示的に登録した内容が常に最優先。そこに無いコンポーネントのみRemote Registryを参照する(DP-0018)
+- **キャッシュ**: 取得した生JSONをcfg_stringにそのままキャッシュ。24時間に1回のみ再取得を試みる(Bounded Work)。成功・失敗にかかわらず試行時刻は記録し、通信不調時のリトライ集中を防ぐ(automatic_check.cppと同じ方針)
+- **スキーマ**: `schema_version`と、各エントリに`source`フィールド(現状`"github"`のみ対応)を持たせ、将来GitLabや個人サイト等への対応を見据えた拡張性を確保(DP-0030 Schema Evolution)
+- Fail Open: 取得失敗・JSON破損時は、直近のキャッシュ(なければ空)にフォールバックし、確認処理自体は止めない
+
+新設ファイル: `remote_registry.h` / `remote_registry.cpp`。`update_check.cpp`の`RunUpdateCheck()`に、ユーザー登録 → Remote Registryの順で参照する優先順位ロジックを組み込んだ。
+
+### リポジトリ構成の変更: レジストリ専用リポジトリへの分離
+
+当初`foo_component_update_checker`リポジトリ内に`registry/known_components.json`を置く想定だったが、`raw.githubusercontent.com`は匿名アクセスのため**リポジトリがpublicである必要がある**ことが判明(動作確認時にnot foundで発覚)。コード本体をpublicにする心の準備がまだだったため、急遽方針変更し、**`foo_component_update_checker-registry`という別のpublicリポジトリ**を新設し、そちらに`known_components.json`を切り出した。コード本体(`foo_component_update_checker`)は引き続きprivateのまま運用できる。
+
+これは実は最初から検討していた「将来的に別リポジトリへ移行する」選択肢そのもので、参照先URLを`remote_registry.cpp`内の定数1箇所にまとめておいたことで、実際に移行コストは定数の書き換えだけで済んだ。
+
+### 動作確認用: Force Refresh Remote Registry (Debug)
+
+24時間の再取得間隔があると動作確認がしづらいため、間隔を無視して即座に再取得・一覧表示するDebugコマンドをHelpメニューに追加した(トラブルシューティング用途として今後も残す)。
+
+### 動作確認結果
+
+実機で成功。
+
+```
+Remote Registry Debug: forcing refresh now (interval ignored)...
+Remote Registry Debug: 1 entrie(s) loaded:
+  foo_albumtrain [github] -> p2ashiura/Album-Train
+```
+
+続けて、Manage Repositoriesにfoo_albumtrainの個別登録が無い状態で「Check for Updates Now」を実行し、Remote Registry経由での紐付けだけで正しく動作することを確認した。
+
+```
+Album Train [foo_albumtrain]
+  Installed: 4.2.0
+  Latest:    v4.2.0  -> Up to date
+```
+
+これで「ユーザーが何も登録しなくても、主要コンポーネントは自動的に更新確認される」というPhase 2の中核機能が実現した。
+
+### 次にやること
+
+- Remote Registryへのエントリ追加(現状`foo_albumtrain`のみ。他の主要コンポーネントも今後追加していく)
+- Manage Repositories...ダイアログで、Remote Registry由来の情報(どのコンポーネントが既にカバーされているか)を表示するUX改善の検討
+- Force Automatic Check (Debug) / Force Refresh Remote Registry (Debug)をPreferencesページのボタンとしても持たせるか検討(現状Helpメニューのみ)
+
+---
+
+## 2026-08-07(続き) Shared Registryへの投稿ボタン(PR誘導方式)
+
+ユーザーがRemote Registry(`foo_component_update_checker-registry`)へ新しいコンポーネント情報を提案できるボタンを、**Manage Repositories...**ダイアログに追加した。
+
+### 設計判断: OAuth/APIトークンは使わない
+
+GitHub APIで直接PRを作成する方式も検討したが、認証情報(トークン)をコンポーネント側で扱う必要が生じ、Design PrinciplesのPrivacy by Minimization/Secure Navigationの観点でリスクが高い。代わりに、**GitHubの「ファイル編集→自動フォーク→PR作成」という標準のWeb UIフロー**に乗せる方式にした。
+
+流れ:
+1. ダイアログで選択中のコンポーネント+入力済みowner/repoから、`known_components.json`の`"components"`配列にそのまま貼り付けられるJSONスニペットを組み立てる
+2. クリップボードにコピー(`CF_UNICODETEXT`、UTF-8→UTF-16変換して格納)
+3. `https://github.com/<owner>/<repo>/edit/main/known_components.json`を`ShellExecuteA`で開く。GitHub側がログイン状態を見て、書き込み権限が無ければ自動でフォーク→編集モードにしてくれる
+4. ユーザーがペーストして「Propose changes」を押せばPRが作成される(この部分はGitHubの標準機能に任せている)
+
+### リファクタリング: registryリポジトリの場所を一元管理
+
+`remote_registry.h`に`k_registryRepoOwner` / `k_registryRepoName` / `k_registryFilePath`を定数として公開し、`remote_registry.cpp`(取得元URL)と`repository_mapping_ui.cpp`(PR誘導ボタンの編集URL)の両方がここを参照するように統一した。将来レジストリの場所を変える際は、この3定数を書き換えるだけでよい。
+
+### 動作確認結果
+
+実機で成功。ボタンクリックでJSONスニペットがクリップボードにコピーされ、GitHubの編集画面が開き、正しくペーストできることを確認した。
+
+```
+    {
+      "dll": "foo_component_update_checker",
+      "source": "github",
+      "owner": "microsoft",
+      "repo": "vscode"
+    },
+```
+
+これで、ユーザーがRepository Mapping登録のついでに、開発側のDBへも簡単に貢献できる導線ができた。
+
+### 次にやること
+
+- Remote Registryへのエントリ追加(現状`foo_albumtrain`のみ)
+- 提案されたPRのレビュー運用(誰が承認するか、悪意ある投稿をどう弾くか)は今後の課題。現状は誰でもPRを送れる状態で、マージするかどうかは手動判断に委ねられる
+- Manage Repositories...ダイアログで、Remote Registry由来の情報を表示するUX改善の検討
+
+---
+
+## 2026-08-07(続き2) 結果表示をコンソールからポップアップウィンドウに変更
+
+これまでconsole::printで出していた更新確認結果を、ListView形式のポップアップウィンドウ(`result_window.h` / `result_window.cpp`)に置き換えた。
+
+### UI設計
+
+- ListView(report view)でComponent / Installed / Latest / Statusの4列を表示
+- 行をダブルクリック、または「Open Release Page」ボタンでリリースページをブラウザで開く
+- 該当コンポーネントが0件の場合は、ウィンドウの代わりに簡易MessageBoxを表示
+
+適用箇所:
+- 「Check for Component Updates」(Helpメニュー)
+- Preferencesの「Check for Updates Now」ボタン
+- 自動確認(更新が見つかった場合のみ。DP-0002 Non-Intrusiveは維持し、見つからなければ何も表示しない)
+- Force Automatic Check (Debug)も同じウィンドウに統一(更新なしの場合のみコンソールにDebug専用メッセージを出す)
+
+### つまずいた点: ListViewのA/Wマクロ
+
+プロジェクトの文字コード設定がUnicodeのため、`ListView_InsertItem` / `ListView_SetItemText` / `ListView_InsertColumn`などの汎用マクロがワイド文字版(`LVITEMW`等)を要求し、UTF-8/ANSI文字列(`std::string`/`char*`)を渡すとコンパイルエラーになった。`ListView_InsertItemA`のような明示的なA版マクロも、このSDKのヘッダーには定義が無く未解決エラーになった。最終的に、マクロに頼らず`SendMessageA` + `LVM_INSERTITEMA` / `LVM_SETITEMTEXTA` / `LVM_INSERTCOLUMNA`メッセージ定数を直接使う形に書き換えて解消した。
+
+### 設計判断: 「Up to date」ではリリースページを開けないようにする
+
+当初は取得できたリリースURLがあれば常に開けるようにしていたが、「Up to dateなのにボタンが押せると、まだ何かすべきという誤解を招く」との指摘を受け、方針変更。**「押せる = 見る価値がある」という一貫したルール**にし、Up to date / Errorのときはクリックしても「This component is already up to date.」等のメッセージのみ表示し、リリースページは開かないようにした(Update available / Unable to compareのみ開ける)。
+
+### 動作確認結果
+
+実機で成功。Update availableの行はリリースページが正しく開き、Up to dateの行では意図通り開かず案内メッセージが出ることを確認した。
+
+### 次にやること
+
+- Remote Registryへのエントリ追加(現状`foo_albumtrain`のみ)
+- 該当コンポーネントが0件のケース(MessageBox表示)の動作確認(まだ未検証)
+- 提案されたPRのレビュー運用の検討
+- Manage Repositories...ダイアログで、Remote Registry由来の情報を表示するUX改善の検討

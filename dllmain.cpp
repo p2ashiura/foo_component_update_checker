@@ -2,7 +2,7 @@
 
 DECLARE_COMPONENT_VERSION(
     "Component Update Checker",
-    "0.4.0",
+    "0.6.0",
     "Checks for updates to installed foobar2000 components.\n"
     "Does not auto-download or auto-install anything."
 );
