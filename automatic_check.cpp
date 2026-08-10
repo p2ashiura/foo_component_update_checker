@@ -35,11 +35,16 @@ const GUID guid_cfg_auto_check_interval_days =
 // {A3C8E6D1-5B9F-4A4C-BE0D-7F3B8C6A9E12}
 const GUID guid_cfg_auto_check_last_run =
 { 0xa3c8e6d1, 0x5b9f, 0x4a4c, { 0xbe, 0x0d, 0x7f, 0x3b, 0x8c, 0x6a, 0x9e, 0x12 } };
+
+// {F7C3A9E2-6D1B-4F8A-9C2E-3B5D7A1F9C60}
+const GUID guid_cfg_auto_check_notification_level =
+{ 0xf7c3a9e2, 0x6d1b, 0x4f8a, { 0x9c, 0x2e, 0x3b, 0x5d, 0x7a, 0x1f, 0x9c, 0x60 } };
 } // namespace
 
 static cfg_bool g_cfgAutoCheckEnabled(guid_cfg_auto_check_enabled, true);
 static cfg_int g_cfgAutoCheckIntervalDays(guid_cfg_auto_check_interval_days, 7);
 static cfg_int g_cfgAutoCheckLastRun(guid_cfg_auto_check_last_run, 0); // UNIXエポック秒。0 = 未実施。
+static cfg_int g_cfgAutoCheckNotificationLevel(guid_cfg_auto_check_notification_level, 0); // AutoCheckNotificationLevel::UpdatesOnly
 
 bool GetAutomaticCheckEnabled() {
     return g_cfgAutoCheckEnabled.get();
@@ -54,8 +59,23 @@ int GetAutomaticCheckIntervalDays() {
 }
 
 void SetAutomaticCheckIntervalDays(int days) {
-    if (days < 1) days = 1; // Safe Defaults: 0以下は事故のもとなので下限を設ける
+    // Safe Defaults: 0以下・極端に大きい値は事故のもとなので1〜30日に収める。
+    if (days < 1) days = 1;
+    if (days > 30) days = 30;
     g_cfgAutoCheckIntervalDays = static_cast<t_int32>(days);
+}
+
+AutoCheckNotificationLevel GetAutomaticCheckNotificationLevel() {
+    int32_t raw = static_cast<int32_t>(g_cfgAutoCheckNotificationLevel.get());
+    switch (raw) {
+    case 1: return AutoCheckNotificationLevel::UpdatesAndErrors;
+    case 2: return AutoCheckNotificationLevel::Always;
+    default: return AutoCheckNotificationLevel::UpdatesOnly;
+    }
+}
+
+void SetAutomaticCheckNotificationLevel(AutoCheckNotificationLevel level) {
+    g_cfgAutoCheckNotificationLevel = static_cast<t_int32>(level);
 }
 
 namespace {
@@ -92,21 +112,40 @@ void runAutomaticCheck() {
     // このタイミングでは既にfb2k::inCpuWorkerThread内(ワーカースレッド)なので、
     // 一度メインスレッドへ戻ってから取得し、その結果を再度ワーカースレッドへ渡す。
     fb2k::inMainThread([] {
+        // アプリ終了処理の途中でこのコールバックが呼ばれた場合、何もせず打ち切る。
+        if (fb2k::mainAborter().is_aborting()) return;
+
         std::vector<InstalledComponentInfo> installed = GetInstalledComponents();
 
         fb2k::inCpuWorkerThread([installed] {
             abort_callback& abort = fb2k::mainAborter();
             std::vector<CheckResult> results = RunUpdateCheck(installed, abort);
 
-            // Non-Intrusive: 通信失敗や比較不能はここでは通知しない。
-            // 更新が実際に見つかった場合のみ、ポップアップウィンドウで知らせる。
-            if (HasUpdateAvailable(results)) {
+            AutoCheckNotificationLevel level = GetAutomaticCheckNotificationLevel();
+            bool shouldShow =
+                (level == AutoCheckNotificationLevel::Always) ||
+                HasUpdateAvailable(results) ||
+                (level == AutoCheckNotificationLevel::UpdatesAndErrors && HasAnyError(results));
+
+            // Non-Intrusive(既定): 通知レベルに応じて必要な場合のみ
+            // ポップアップウィンドウで知らせる。
+            if (shouldShow) {
                 fb2k::inMainThread([results] {
-                    ShowUpdateResultWindow(core_api::get_main_window(), results, "");
+                    // アプリ終了処理の途中でこのコールバックが呼ばれた場合、
+                    // 新しくウィンドウを作らずに打ち切る(main_thread_callback経由の
+                    // 処理が終了中にディスパッチされることによる不具合を避ける)。
+                    if (fb2k::mainAborter().is_aborting()) return;
+
+                    ShowUpdateResultWindow(
+                        core_api::get_main_window(),
+                        results,
+                        "Automatic check: no installed components matched a registered repository."
+                    );
                 });
             }
 
             fb2k::inMainThread([] {
+                if (fb2k::mainAborter().is_aborting()) return;
                 markAutomaticCheckRanNow();
             });
         });
@@ -126,62 +165,5 @@ public:
 };
 
 static initquit_factory_t<initquit_automatic_check> g_initquit_automatic_check_factory;
-
-
-// ------------------------------------------------------------------
-// 動作確認・トラブルシューティング用: 7日間隔の判定を無視して
-// 自動確認と同じ処理(検出→紐付け→GitHub確認→比較→静かな通知)を
-// 即座に実行する。今後も「自動確認が本当に動いているか」の確認に使える。
-// ------------------------------------------------------------------
-
-// {B6D2E8F4-9A5C-4E1D-8B6F-3C7A9D2E5F80}
-const GUID guid_mainmenu_force_automatic_check =
-{ 0xb6d2e8f4, 0x9a5c, 0x4e1d, { 0x8b, 0x6f, 0x3c, 0x7a, 0x9d, 0x2e, 0x5f, 0x80 } };
-
-class mainmenu_commands_force_automatic_check : public mainmenu_commands {
-public:
-    t_uint32 get_command_count() override {
-        return 1;
-    }
-
-    GUID get_command(t_uint32 p_index) override {
-        return guid_mainmenu_force_automatic_check;
-    }
-
-    void get_name(t_uint32 p_index, pfc::string_base& p_out) override {
-        p_out = "Force Automatic Check (Debug)";
-    }
-
-    bool get_description(t_uint32 p_index, pfc::string_base& p_out) override {
-        p_out = "Diagnostic: runs the automatic (silent) check immediately, ignoring the interval.";
-        return true;
-    }
-
-    GUID get_parent() override {
-        return mainmenu_groups::help;
-    }
-
-    void execute(t_uint32 p_index, service_ptr_t<service_base> p_callback) override {
-        console::print("Automatic Check Debug: forcing a check now (interval ignored)...");
-
-        std::vector<InstalledComponentInfo> installed = GetInstalledComponents();
-
-        fb2k::inCpuWorkerThread([installed] {
-            abort_callback& abort = fb2k::mainAborter();
-            std::vector<CheckResult> results = RunUpdateCheck(installed, abort);
-
-            fb2k::inMainThread([results] {
-                if (HasUpdateAvailable(results)) {
-                    ShowUpdateResultWindow(core_api::get_main_window(), results, "");
-                } else {
-                    console::print("Automatic Check Debug: no updates found (this would have been silent in a real automatic run).");
-                }
-                markAutomaticCheckRanNow();
-            });
-        });
-    }
-};
-
-static service_factory_single_t<mainmenu_commands_force_automatic_check> g_mainmenu_commands_force_automatic_check_factory;
 
 } // namespace

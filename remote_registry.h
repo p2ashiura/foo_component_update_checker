@@ -32,10 +32,20 @@ struct RemoteRegistryEntry {
     std::string repo;
 };
 
+// GetRemoteRegistryEntries()呼び出し時に、実際に取得を試みたか・成功したかを
+// 呼び出し元へ伝えるための構造体。24時間の間隔内で再取得しなかった場合は
+// attempted=falseのままになる(それ自体はエラーではない)。
+struct RemoteRegistryFetchStatus {
+    bool attempted = false;
+    bool succeeded = false;
+    std::string errorMessage;
+};
+
 // Remote Registryのエントリ一覧を取得する。
 // 必要に応じてGitHub上の最新版を取得しに行く(ネットワークI/Oを含むため、
 // ワーカースレッドで呼ぶこと)。取得できない場合は直近のキャッシュを返す。
-std::vector<RemoteRegistryEntry> GetRemoteRegistryEntries(abort_callback& abort);
+// outStatusを渡すと、取得を試みたか・成功したかが分かる(通知の要否判定に使う)。
+std::vector<RemoteRegistryEntry> GetRemoteRegistryEntries(abort_callback& abort, RemoteRegistryFetchStatus* outStatus = nullptr);
 
 // dllNameで検索する(拡張子の有無・大文字小文字は無視)。
 // source == "github" のエントリのみ現時点では利用可能とみなす。

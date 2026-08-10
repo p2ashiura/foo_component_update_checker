@@ -1,12 +1,15 @@
 ﻿#include "SDK-2025-03-07/foobar2000/SDK/foobar2000.h"
+#include "SDK-2025-03-07/foobar2000/SDK/coreDarkMode.h"
 #include "update_check.h"
 #include "result_window.h"
 
 #include <windows.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <uxtheme.h>
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "uxtheme.lib")
 
 #include <vector>
 #include <string>
@@ -24,8 +27,21 @@ namespace {
 const int IDC_RW_LIST = 5001;
 const int IDC_RW_OPEN_BTN = 5002;
 
+// DS_SHELLFONTの自動フォント解決に頼らず、Windowsのダイアログ標準フォント
+// (メッセージボックス等と同じ、通常Segoe UI 9pt相当)を自前で作成して使う。
+// 一度作成したフォントはプロセス終了まで保持してよい(GDIリソースとして軽微)。
+HFONT GetShellUIFont() {
+    static HFONT s_font = NULL;
+    if (!s_font) {
+        NONCLIENTMETRICS ncm = { sizeof(ncm) };
+        SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        s_font = CreateFontIndirect(&ncm.lfMessageFont);
+    }
+    return s_font;
+}
+
 int GetDialogFontLineHeight(HWND hDlg) {
-    HFONT hFont = (HFONT)SendMessage(hDlg, WM_GETFONT, 0, 0);
+    HFONT hFont = GetShellUIFont();
     if (!hFont) return 16;
 
     HDC hdc = GetDC(hDlg);
@@ -42,10 +58,25 @@ int GetDialogFontLineHeight(HWND hDlg) {
     return h;
 }
 
+// DS_SETFONT(DS_SHELLFONTに含まれる)は、テンプレートに直接定義された
+// コントロールにはフォントを自動適用するが、cdit=0で後からCreateWindowExで
+// 動的に作ったコントロールには伝わらない。作り終えた後にまとめて適用する。
+BOOL CALLBACK SetChildFontEnumProc(HWND hwnd, LPARAM lParam) {
+    SendMessage(hwnd, WM_SETFONT, (WPARAM)lParam, TRUE);
+    return TRUE;
+}
+
+void ApplyDialogFontToChildren(HWND hDlg) {
+    HFONT hFont = GetShellUIFont();
+    if (!hFont) return;
+    SendMessage(hDlg, WM_SETFONT, (WPARAM)hFont, FALSE);
+    EnumChildWindows(hDlg, SetChildFontEnumProc, (LPARAM)hFont);
+}
+
 std::string StatusToDisplayString(CheckResult const& r) {
     switch (r.status) {
     case UpdateStatus::UpdateAvailable: return "Update available";
-    case UpdateStatus::UpToDate: return "Up to date";
+    case UpdateStatus::UpToDate: return "Current";
     case UpdateStatus::ComparisonUnsupported: return "Unable to compare";
     case UpdateStatus::Error: return "Error: " + r.errorMessage;
     }
@@ -54,6 +85,7 @@ std::string StatusToDisplayString(CheckResult const& r) {
 
 struct ResultWindowContext {
     std::vector<CheckResult> results;
+    fb2k::CCoreDarkModeHooks darkMode;
 };
 
 void PopulateListView(HWND hList, std::vector<CheckResult> const& results) {
@@ -111,6 +143,36 @@ void OpenSelectedRelease(HWND hDlg, HWND hList, std::vector<CheckResult> const* 
     }
 
     ShellExecuteA(hDlg, "open", r.releaseUrl.c_str(), NULL, NULL, SW_SHOWNORMAL);
+}
+
+// ListView自体をサブクラス化し、ヘッダー(SysHeader32、ListViewの子ウィンドウ)から
+// 上がってくるNM_CUSTOMDRAWをここで直接処理する。ヘッダーの通知先はその親である
+// ListView自身であり、ダイアログのWM_NOTIFYまでは届かないため、この位置で
+// 処理する必要がある。dwRefDataには、生成時に決めたダーク/ライトの真偽値
+// (bool)をそのままDWORD_PTRとして渡している(ダイアログ表示中は変化しないため)。
+LRESULT CALLBACK ListViewHeaderColorSubclassProc(
+    HWND hList, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR uIdSubclass, DWORD_PTR dwRefData
+) {
+    if (msg == WM_NOTIFY) {
+        LPNMHDR nm = (LPNMHDR)lp;
+        if (nm->code == NM_CUSTOMDRAW) {
+            HWND hHeader = ListView_GetHeader(hList);
+            if (nm->hwndFrom == hHeader) {
+                LPNMCUSTOMDRAW cd = (LPNMCUSTOMDRAW)lp;
+                bool dark = (dwRefData != 0);
+
+                if (cd->dwDrawStage == CDDS_PREPAINT) {
+                    return CDRF_NOTIFYITEMDRAW;
+                }
+                if (cd->dwDrawStage == CDDS_ITEMPREPAINT) {
+                    SetTextColor(cd->hdc, dark ? RGB(255, 255, 255) : GetSysColor(COLOR_WINDOWTEXT));
+                    return CDRF_DODEFAULT;
+                }
+            }
+        }
+    }
+
+    return DefSubclassProc(hList, msg, wp, lp);
 }
 
 LRESULT CALLBACK ResultWindowDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
@@ -192,11 +254,50 @@ LRESULT CALLBACK ResultWindowDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM l
 
         SetWindowPos(hDlg, NULL, posX, posY, winW, winH, SWP_NOZORDER);
 
+        ApplyDialogFontToChildren(hDlg);
+
+        // ListView自体にはダークモードフックを適用しない
+        // (内部のカスタム描画と、手動で設定する行の色指定が競合するため)。
+        // ダイアログ本体の背景と、ボタン類の見た目だけをテーマに合わせる。
+        ctx->darkMode.AddDialog(hDlg);
+        ctx->darkMode.AddCtrlAuto(GetDlgItem(hDlg, IDC_RW_OPEN_BTN));
+        ctx->darkMode.AddCtrlAuto(GetDlgItem(hDlg, IDOK));
+
+        // ListViewの行の文字色・背景色は完全に手動で設定する。
+        {
+            bool dark = (bool)ctx->darkMode;
+            HWND listForColors = GetDlgItem(hDlg, IDC_RW_LIST);
+            if (dark) {
+                ListView_SetBkColor(listForColors, RGB(32, 32, 32));
+                ListView_SetTextBkColor(listForColors, RGB(32, 32, 32));
+                ListView_SetTextColor(listForColors, RGB(255, 255, 255));
+            } else {
+                ListView_SetBkColor(listForColors, GetSysColor(COLOR_WINDOW));
+                ListView_SetTextBkColor(listForColors, GetSysColor(COLOR_WINDOW));
+                ListView_SetTextColor(listForColors, GetSysColor(COLOR_WINDOWTEXT));
+            }
+            InvalidateRect(listForColors, NULL, TRUE);
+
+            // 列見出し(ヘッダー)はListView本体とは別の子ウィンドウ(SysHeader32)
+            // なので、行の色設定(ListView_Set*Color)の対象外。
+            // 背景色はSetWindowThemeで切り替わるが、文字色までは追従しない。
+            //
+            // ヘッダーのNM_CUSTOMDRAW通知は「ヘッダーの親」であるListView自身に
+            // 送られ、そこで止まってしまう(ダイアログのWM_NOTIFYまで届かない)。
+            // そのためListView自体をサブクラス化し、そこで直接文字色を設定する。
+            HWND hHeader = ListView_GetHeader(listForColors);
+            if (hHeader) {
+                SetWindowTheme(hHeader, dark ? L"DarkMode_ItemsView" : L"ItemsView", NULL);
+            }
+            SetWindowSubclass(listForColors, ListViewHeaderColorSubclassProc, 1, (DWORD_PTR)dark);
+        }
+
         return TRUE;
     }
 
     case WM_NOTIFY: {
         NMHDR* nm = (NMHDR*)lp;
+
         if (nm->idFrom == IDC_RW_LIST && nm->code == NM_DBLCLK) {
             ResultWindowContext* ctx = (ResultWindowContext*)GetWindowLongPtr(hDlg, DWLP_USER);
             HWND hList = GetDlgItem(hDlg, IDC_RW_LIST);
@@ -248,6 +349,8 @@ void ShowUpdateResultWindow(HWND parent, std::vector<CheckResult> const& results
         WORD menu = 0;
         WORD wclass = 0;
         WCHAR title[32] = L"Component Update Checker";
+        WORD pointsize = 8;
+        WCHAR typeface[15] = L"MS Shell Dlg 2";
     } dlgData = {};
 
     dlgData.dlg.style = DS_MODALFRAME | DS_SHELLFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU;

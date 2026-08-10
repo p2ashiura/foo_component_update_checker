@@ -1,4 +1,5 @@
 ﻿#include "SDK-2025-03-07/foobar2000/SDK/foobar2000.h"
+#include "SDK-2025-03-07/foobar2000/SDK/coreDarkMode.h"
 #include "repository_mapping.h"
 #include "repository_mapping_ui.h"
 #include "remote_registry.h"
@@ -22,12 +23,14 @@
 //
 // レイアウト:
 //   [Component:      [ドロップダウン(導入済みコンポーネント一覧)]]
-//   [GitHub Owner:    [Edit]]
-//   [GitHub Repo:     [Edit]]
-//   [Save]
+//   [Repository URL:  [Edit(GitHubリポジトリのURLを貼り付ける)]]
+//   [Save] [Suggest for Shared Registry...]
 //   [登録済み一覧(ListBox)]
 //   [Remove Selected]
 //   [Close]
+//
+// URLはowner/repoへ解析してから保存する(TryParseGitHubUrl)。保存形式自体は
+// 従来通りowner/repo文字列のままなので、Remote Registryとの互換性に影響しない。
 // ------------------------------------------------------------------
 
 namespace {
@@ -35,15 +38,27 @@ namespace {
 // コントロールID(このダイアログ内のみで完結する値なので、他のダイアログとの
 // 重複は気にしなくてよい)
 const int IDC_RM_COMPONENT_COMBO = 2001;
-const int IDC_RM_OWNER_EDIT = 2002;
-const int IDC_RM_REPO_EDIT = 2003;
+const int IDC_RM_URL_EDIT = 2002;
 const int IDC_RM_SAVE_BTN = 2004;
 const int IDC_RM_LIST = 2005;
 const int IDC_RM_REMOVE_BTN = 2006;
 const int IDC_RM_SUGGEST_BTN = 2007;
 
+// DS_SHELLFONTの自動フォント解決に頼らず、Windowsのダイアログ標準フォント
+// (メッセージボックス等と同じ、通常Segoe UI 9pt相当)を自前で作成して使う。
+// 一度作成したフォントはプロセス終了まで保持してよい(GDIリソースとして軽微)。
+HFONT GetShellUIFont() {
+    static HFONT s_font = NULL;
+    if (!s_font) {
+        NONCLIENTMETRICS ncm = { sizeof(ncm) };
+        SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        s_font = CreateFontIndirect(&ncm.lfMessageFont);
+    }
+    return s_font;
+}
+
 int GetDialogFontLineHeight(HWND hDlg) {
-    HFONT hFont = (HFONT)SendMessage(hDlg, WM_GETFONT, 0, 0);
+    HFONT hFont = GetShellUIFont();
     if (!hFont) return 16;
 
     HDC hdc = GetDC(hDlg);
@@ -58,6 +73,21 @@ int GetDialogFontLineHeight(HWND hDlg) {
     int h = tm.tmHeight + tm.tmExternalLeading;
     if (h < 14) h = 14;
     return h;
+}
+
+// DS_SETFONT(DS_SHELLFONTに含まれる)は、テンプレートに直接定義された
+// コントロールにはフォントを自動適用するが、cdit=0で後からCreateWindowExで
+// 動的に作ったコントロールには伝わらない。作り終えた後にまとめて適用する。
+BOOL CALLBACK SetChildFontEnumProc(HWND hwnd, LPARAM lParam) {
+    SendMessage(hwnd, WM_SETFONT, (WPARAM)lParam, TRUE);
+    return TRUE;
+}
+
+void ApplyDialogFontToChildren(HWND hDlg) {
+    HFONT hFont = GetShellUIFont();
+    if (!hFont) return;
+    SendMessage(hDlg, WM_SETFONT, (WPARAM)hFont, FALSE);
+    EnumChildWindows(hDlg, SetChildFontEnumProc, (LPARAM)hFont);
 }
 
 // componentversion::enumerate() から、導入済みコンポーネントのDLL名一覧を
@@ -113,6 +143,62 @@ bool CopyTextToClipboard(HWND hDlg, std::string const& utf8Text) {
     return true;
 }
 
+std::string TrimWhitespace(std::string s) {
+    size_t start = s.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return "";
+    size_t end = s.find_last_not_of(" \t\r\n");
+    return s.substr(start, end - start + 1);
+}
+
+// GitHubのリポジトリURL(様々な表記ゆれ)からowner/repoを取り出す。
+// 対応例:
+//   https://github.com/owner/repo
+//   http://github.com/owner/repo/
+//   github.com/owner/repo
+//   https://github.com/owner/repo.git
+//   https://github.com/owner/repo/releases (releasesタブ等が付いていても可)
+//
+// 将来他サイト(GitLab等)に対応する際は、ここに解析パターンを追加していく想定。
+// 現時点でgithub.comと解釈できない入力は、誤登録を避けるため素直に失敗を返す
+// (DP-0009: 誤判定するくらいなら明示的にエラーにする)。
+bool TryParseGitHubUrl(std::string url, std::string& outOwner, std::string& outRepo) {
+    url = TrimWhitespace(url);
+    if (url.empty()) return false;
+
+    const std::string marker = "github.com/";
+    size_t pos = url.find(marker);
+    if (pos == std::string::npos) return false;
+
+    std::string rest = url.substr(pos + marker.length());
+
+    // クエリ文字列・フラグメントを切り落とす
+    size_t cutPos = rest.find_first_of("?#");
+    if (cutPos != std::string::npos) rest = rest.substr(0, cutPos);
+
+    // owner/repo/(残り、あれば無視) に分割
+    size_t slashPos = rest.find('/');
+    if (slashPos == std::string::npos) return false; // owner だけではリポジトリが特定できない
+
+    std::string owner = rest.substr(0, slashPos);
+    std::string repoRest = rest.substr(slashPos + 1);
+
+    size_t secondSlashPos = repoRest.find('/');
+    std::string repo = (secondSlashPos == std::string::npos) ? repoRest : repoRest.substr(0, secondSlashPos);
+
+    // ".git" サフィックスを除去
+    const std::string gitSuffix = ".git";
+    if (repo.size() > gitSuffix.size() &&
+        repo.compare(repo.size() - gitSuffix.size(), gitSuffix.size(), gitSuffix) == 0) {
+        repo = repo.substr(0, repo.size() - gitSuffix.size());
+    }
+
+    if (owner.empty() || repo.empty()) return false;
+
+    outOwner = owner;
+    outRepo = repo;
+    return true;
+}
+
 LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_INITDIALOG: {
@@ -151,26 +237,14 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
 
         y += rowH + 4;
 
-        // ---- GitHub Owner ----
-        CreateWindowEx(0, _T("STATIC"), _T("GitHub Owner:"),
+        // ---- Repository URL ----
+        CreateWindowEx(0, _T("STATIC"), _T("Repository URL:"),
             WS_CHILD | WS_VISIBLE,
             MARGIN, y + 2, LABEL_W, labelH, hDlg, NULL, NULL, NULL);
 
         CreateWindowEx(WS_EX_CLIENTEDGE, _T("EDIT"), NULL,
             WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-            FIELD_X, y, FIELD_W, editH, hDlg, (HMENU)(INT_PTR)IDC_RM_OWNER_EDIT,
-            NULL, NULL);
-
-        y += rowH + 4;
-
-        // ---- GitHub Repo ----
-        CreateWindowEx(0, _T("STATIC"), _T("GitHub Repo:"),
-            WS_CHILD | WS_VISIBLE,
-            MARGIN, y + 2, LABEL_W, labelH, hDlg, NULL, NULL, NULL);
-
-        CreateWindowEx(WS_EX_CLIENTEDGE, _T("EDIT"), NULL,
-            WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-            FIELD_X, y, FIELD_W, editH, hDlg, (HMENU)(INT_PTR)IDC_RM_REPO_EDIT,
+            FIELD_X, y, FIELD_W, editH, hDlg, (HMENU)(INT_PTR)IDC_RM_URL_EDIT,
             NULL, NULL);
 
         y += rowH + 4;
@@ -259,7 +333,17 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
 
         SetWindowPos(hDlg, NULL, posX, posY, winW, winH, SWP_NOZORDER);
 
+        ApplyDialogFontToChildren(hDlg);
+
         RefreshEntryListBox(hDlg);
+
+        // lpにはShowRepositoryMappingDialog()側で確保したCCoreDarkModeHooksへの
+        // ポインタが渡ってくる(呼び出し元のスタックフレームがダイアログの
+        // 表示中ずっと生きているので、ここで参照しても問題ない)。
+        if (lp) {
+            ((fb2k::CCoreDarkModeHooks*)lp)->AddDialogWithControls(hDlg);
+        }
+
         return TRUE;
     }
 
@@ -275,21 +359,21 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             char dllNameBuf[256] = {};
             SendMessageA(componentCombo, CB_GETLBTEXT, sel, (LPARAM)dllNameBuf);
 
-            char ownerBuf[256] = {};
-            GetWindowTextA(GetDlgItem(hDlg, IDC_RM_OWNER_EDIT), ownerBuf, sizeof(ownerBuf));
+            char urlBuf[512] = {};
+            GetWindowTextA(GetDlgItem(hDlg, IDC_RM_URL_EDIT), urlBuf, sizeof(urlBuf));
 
-            char repoBuf[256] = {};
-            GetWindowTextA(GetDlgItem(hDlg, IDC_RM_REPO_EDIT), repoBuf, sizeof(repoBuf));
-
-            if (ownerBuf[0] == '\0' || repoBuf[0] == '\0') {
-                MessageBox(hDlg, _T("Please fill in both GitHub Owner and Repo."), _T("Repository Mapping"), MB_OK | MB_ICONWARNING);
+            std::string owner, repo;
+            if (!TryParseGitHubUrl(urlBuf, owner, repo)) {
+                MessageBox(hDlg,
+                    _T("Please paste a GitHub repository URL, e.g.\nhttps://github.com/owner/repo"),
+                    _T("Repository Mapping"), MB_OK | MB_ICONWARNING);
                 return TRUE;
             }
 
             RepositoryMappingEntry entry;
             entry.dllName = dllNameBuf;
-            entry.owner = ownerBuf;
-            entry.repo = repoBuf;
+            entry.owner = owner;
+            entry.repo = repo;
             upsertRepositoryMappingEntry(entry);
 
             RefreshEntryListBox(hDlg);
@@ -323,14 +407,14 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             char dllNameBuf[256] = {};
             SendMessageA(componentCombo, CB_GETLBTEXT, sel, (LPARAM)dllNameBuf);
 
-            char ownerBuf[256] = {};
-            GetWindowTextA(GetDlgItem(hDlg, IDC_RM_OWNER_EDIT), ownerBuf, sizeof(ownerBuf));
+            char urlBuf[512] = {};
+            GetWindowTextA(GetDlgItem(hDlg, IDC_RM_URL_EDIT), urlBuf, sizeof(urlBuf));
 
-            char repoBuf[256] = {};
-            GetWindowTextA(GetDlgItem(hDlg, IDC_RM_REPO_EDIT), repoBuf, sizeof(repoBuf));
-
-            if (ownerBuf[0] == '\0' || repoBuf[0] == '\0') {
-                MessageBox(hDlg, _T("Please fill in both GitHub Owner and Repo first."), _T("Suggest for Shared Registry"), MB_OK | MB_ICONWARNING);
+            std::string owner, repo;
+            if (!TryParseGitHubUrl(urlBuf, owner, repo)) {
+                MessageBox(hDlg,
+                    _T("Please paste a GitHub repository URL first, e.g.\nhttps://github.com/owner/repo"),
+                    _T("Suggest for Shared Registry"), MB_OK | MB_ICONWARNING);
                 return TRUE;
             }
 
@@ -340,8 +424,8 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             snippet += "    {\n";
             snippet += "      \"dll\": \"" + std::string(dllNameBuf) + "\",\n";
             snippet += "      \"source\": \"github\",\n";
-            snippet += "      \"owner\": \"" + std::string(ownerBuf) + "\",\n";
-            snippet += "      \"repo\": \"" + std::string(repoBuf) + "\"\n";
+            snippet += "      \"owner\": \"" + owner + "\",\n";
+            snippet += "      \"repo\": \"" + repo + "\"\n";
             snippet += "    },";
 
             bool copied = CopyTextToClipboard(hDlg, snippet);
@@ -386,6 +470,13 @@ void ShowRepositoryMappingDialog(HWND parent) {
         WORD menu = 0;
         WORD wclass = 0;
         WCHAR title[24] = L"Repository Mapping";
+        // DS_SHELLFONT指定時は、フォールバック用のpointsize/typefaceを
+        // 続けて格納しておく必要がある(無いとテーマフォントが正しく
+        // 適用されず、大きい既定フォントで表示されてしまう)。
+        // DS_SHELLFONTなので実際にはシステムのシェルフォント(Segoe UI等)に
+        // 置き換えられるが、この値は互換性のためのフォールバックとして必要。
+        WORD pointsize = 8;
+        WCHAR typeface[15] = L"MS Shell Dlg 2";
     } dlgData = {};
 
     dlgData.dlg.style = DS_MODALFRAME | DS_SHELLFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU;
@@ -396,7 +487,9 @@ void ShowRepositoryMappingDialog(HWND parent) {
     dlgData.dlg.cx = 100;
     dlgData.dlg.cy = 100;
 
+    fb2k::CCoreDarkModeHooks darkMode;
+
     DialogBoxIndirectParam(
         NULL, (LPCDLGTEMPLATE)&dlgData, parent,
-        (DLGPROC)RepositoryMappingDialogProc, 0);
+        (DLGPROC)RepositoryMappingDialogProc, (LPARAM)&darkMode);
 }

@@ -46,6 +46,10 @@ std::vector<CheckResult> RunUpdateCheck(
 // resultsの中に「更新あり」が1件でもあるかを返す。
 bool HasUpdateAvailable(std::vector<CheckResult> const& results);
 
+// resultsの中にエラー(通信失敗・解析失敗・Remote Registry取得失敗等)が
+// 1件でもあるかを返す。自動確認の通知レベル判定に使う。
+bool HasAnyError(std::vector<CheckResult> const& results);
+
 // 結果セットを1回のconsole::printでまとめて表示する(DP-0025)。
 // emptyMessage: 該当コンポーネントが1件も無かった場合に表示するメッセージ。
 void PrintUpdateCheckResults(std::vector<CheckResult> const& results, const char* emptyMessage);

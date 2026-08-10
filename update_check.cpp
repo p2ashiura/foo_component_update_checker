@@ -225,7 +225,21 @@ std::vector<CheckResult> RunUpdateCheck(
     // Remote Registry(開発側が管理する既知コンポーネントDB)。
     // ユーザー登録に無いコンポーネントの補完として使う(DP-0018 Hybrid Registry Model)。
     // GitHub上の静的JSONを取得するため、ここでもネットワークI/Oが発生しうる。
-    std::vector<RemoteRegistryEntry> remoteEntries = GetRemoteRegistryEntries(abort);
+    RemoteRegistryFetchStatus registryStatus;
+    std::vector<RemoteRegistryEntry> remoteEntries = GetRemoteRegistryEntries(abort, &registryStatus);
+
+    // Remote Registry自体の取得に失敗した場合、これまでは完全に見えなかった。
+    // 通知レベルの判定(automatic_check.cpp)に使えるよう、結果セットの一部として
+    // 合成エントリを含める(手動確認では常に表示される)。
+    if (registryStatus.attempted && !registryStatus.succeeded) {
+        CheckResult r;
+        r.dllName = "";
+        r.displayName = "Shared Registry (known_components.json)";
+        r.installedVersion = "";
+        r.status = UpdateStatus::Error;
+        r.errorMessage = registryStatus.errorMessage;
+        results.push_back(std::move(r));
+    }
 
     for (auto const& comp : installed) {
         // 1. ユーザーが明示的に登録した内容を最優先する
@@ -250,28 +264,38 @@ std::vector<CheckResult> RunUpdateCheck(
         r.displayName = comp.displayName;
         r.installedVersion = comp.installedVersion;
 
+        // ネットワーク取得とJSON解析を別々に区切り、原因別のメッセージにする
+        // (DP-0035 Observable: 何が起きたか区別できるようにする)。
+        pfc::string8 body;
+        bool fetchOk = false;
+
         try {
             pfc::string8 url = "https://api.github.com/repos/";
             url << mapping.owner.c_str() << "/" << mapping.repo.c_str() << "/releases/latest";
 
             http_client::ptr client = http_client::get();
             http_request::ptr request = client->create_request("GET");
-            request->add_header("User-Agent", "foo_component_update_checker/0.6.0");
+            request->add_header("User-Agent", "foo_component_update_checker/1.0.0");
             request->add_header("Accept", "application/vnd.github+json");
 
             file::ptr response = request->run(url, abort);
-
-            pfc::string8 body;
             response->read_string_raw(body, abort);
-
-            nlohmann::json parsed = nlohmann::json::parse(body.c_str());
-
-            r.latestVersion = parsed.value("tag_name", "");
-            r.releaseUrl = parsed.value("html_url", "");
-            r.status = compareVersions(r.installedVersion, r.latestVersion);
+            fetchOk = true;
         } catch (std::exception const& e) {
             r.status = UpdateStatus::Error;
-            r.errorMessage = e.what();
+            r.errorMessage = std::string("Network/API error: ") + e.what();
+        }
+
+        if (fetchOk) {
+            try {
+                nlohmann::json parsed = nlohmann::json::parse(body.c_str());
+                r.latestVersion = parsed.value("tag_name", "");
+                r.releaseUrl = parsed.value("html_url", "");
+                r.status = compareVersions(r.installedVersion, r.latestVersion);
+            } catch (std::exception const& e) {
+                r.status = UpdateStatus::Error;
+                r.errorMessage = std::string("Invalid response: ") + e.what();
+            }
         }
 
         results.push_back(std::move(r));
@@ -283,6 +307,13 @@ std::vector<CheckResult> RunUpdateCheck(
 bool HasUpdateAvailable(std::vector<CheckResult> const& results) {
     for (auto const& r : results) {
         if (r.status == UpdateStatus::UpdateAvailable) return true;
+    }
+    return false;
+}
+
+bool HasAnyError(std::vector<CheckResult> const& results) {
+    for (auto const& r : results) {
+        if (r.status == UpdateStatus::Error) return true;
     }
     return false;
 }
@@ -339,11 +370,11 @@ public:
     }
 
     void get_name(t_uint32 p_index, pfc::string_base& p_out) override {
-        p_out = "Check for Component Updates";
+        p_out = "Check Third-Party Component Updates";
     }
 
     bool get_description(t_uint32 p_index, pfc::string_base& p_out) override {
-        p_out = "Checks installed components against their registered GitHub repositories for updates.";
+        p_out = "Checks third-party components (not covered by foobar2000's own Component Repository) for updates via their GitHub repositories.";
         return true;
     }
 
@@ -359,6 +390,11 @@ public:
             std::vector<CheckResult> results = RunUpdateCheck(installed, abort);
 
             fb2k::inMainThread([results] {
+                // アプリ終了処理の途中でこのコールバックが呼ばれた場合、
+                // 新しくウィンドウを作らずに打ち切る(main_thread_callback経由の
+                // 処理が終了中にディスパッチされることによる不具合を避ける)。
+                if (fb2k::mainAborter().is_aborting()) return;
+
                 ShowUpdateResultWindow(
                     core_api::get_main_window(),
                     results,

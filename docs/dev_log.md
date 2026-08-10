@@ -623,3 +623,184 @@ GitHub APIで直接PRを作成する方式も検討したが、認証情報(ト�
 - 該当コンポーネントが0件のケース(MessageBox表示)の動作確認(まだ未検証)
 - 提案されたPRのレビュー運用の検討
 - Manage Repositories...ダイアログで、Remote Registry由来の情報を表示するUX改善の検討
+
+---
+
+## 2026-08-07(続き3) Repository Mappingの入力方法をURL貼り付け方式に変更
+
+**Manage Repositories...**の入力欄を、「GitHub Owner」「GitHub Repo」の2欄から**「Repository URL」1欄**に統合した。owner/repoを手動で分けて入力させるより直感的で、かつ将来GitHub以外のサイトに対応を広げる際も「ユーザーが持っている情報(URL)をそのまま渡せる」形になるため。
+
+`TryParseGitHubUrl()`を追加し、以下のような表記ゆれを吸収してowner/repoを取り出す。
+
+- `https://github.com/owner/repo`
+- `github.com/owner/repo`(スキーム無し)
+- `https://github.com/owner/repo.git`
+- 末尾に`/releases`等が付いていても可(クエリ・フラグメントも除去)
+
+`github.com`と解釈できない入力は誤登録を避けるため保存せず、明示的にエラーを出す(DP-0009踏襲)。保存されるデータ形式(owner/repo文字列)自体は変更していないため、cfg_stringの保存内容やRemote Registryとの互換性への影響は無い。「Suggest for Shared Registry...」ボタンも同じ解析ロジックを使うよう統一した。
+
+### 動作確認結果
+
+実機で成功。URL貼り付け→保存→一覧に正しくowner/repoが分解されて表示されること、無関係なURLでは正しくエラーになることを確認した。
+
+### 次にやること
+
+- 設定項目の拡充、UI整理(あしぅらさんの構想: 公開前の最終チェックリストとして「設定項目追加」「UI整理」「Repository Mapping改善(今回実施)」「DB拡充」「自動確認ポップアップの動作確認」の5項目が挙がっている)
+- Remote Registryへのエントリ追加(現状`foo_albumtrain`のみ)
+- 自動確認で実際にポップアップが出るかの実地確認(7日待つか、Force Automatic Check (Debug)で代替確認は済んでいるが、本物の自動確認フローでの確認はまだ)
+
+---
+
+## 2026-08-07(続き4) 自動確認の通知レベル設定 + エラー原因の分類
+
+公開前チェックリストの1つ目「設定項目の追加」として、自動確認の通知レベルを設定可能にした。
+
+### これまで見えなかった情報の洗い出し
+
+自動確認は「更新あり」以外は完全に無音だったため、以下が見えなくなっていた:
+- ネットワークエラー(接続不可、タイムアウト等)
+- GitHub API側のエラー(404/403等)
+- JSON解析エラー
+- 「比較不能」の結果
+- 該当コンポーネントが0件のケース
+- Remote Registry(共有DB)自体の取得失敗
+
+### 実装
+
+`automatic_check.h`に`AutoCheckNotificationLevel`(UpdatesOnly / UpdatesAndErrors / Always)を追加し、cfg_int(既定値0=UpdatesOnly)で永続化。Preferencesページにラジオボタン3択(「When automatic check runs, show a popup for:」)を追加し、既存のcheckbox/interval設定と同じbaseline管理(Apply連動)に組み込んだ。
+
+`runAutomaticCheck()`の判定ロジック:
+```
+shouldShow = (level == Always)
+          || HasUpdateAvailable(results)
+          || (level == UpdatesAndErrors && HasAnyError(results))
+```
+
+`Force Automatic Check (Debug)`も同じ判定ロジックを再現するよう統一した。
+
+### エラーの原因分類
+
+`update_check.cpp`の`RunUpdateCheck()`で、これまで1つのtry/catchで囲んでいたHTTP取得とJSON解析を分離し、原因別のメッセージを付与:
+- `Network/API error: ...`(接続失敗、GitHub側のエラー含む)
+- `Invalid response: ...`(レスポンスの解析失敗)
+
+### Remote Registry取得失敗の可視化
+
+`remote_registry.h`に`RemoteRegistryFetchStatus`(attempted/succeeded/errorMessage)を追加し、`GetRemoteRegistryEntries()`が取得を試みたか・成功したかを呼び出し元に伝えられるようにした。`RunUpdateCheck()`は、Remote Registry取得に失敗した場合、`"Shared Registry (known_components.json)"`という合成エントリを結果セットに追加する。これにより、通知レベル判定にも自然に載るほか、**手動確認でもこれまで見えなかったRemote Registryの取得失敗が見えるようになった**(副産物的な改善)。
+
+### 動作確認結果
+
+実機で成功。ラジオボタンの切り替え・Apply連動・保存・再読み込みまで確認。存在しないowner/repoをRepository Mappingに登録してエラーケースを意図的に再現し、結果ウィンドウに`Error: Network/API error: Object not found`のように、原因が分かる形で表示されることを確認した。
+
+### 次にやること
+
+- 公開前チェックリスト残り: UI整理、DB拡充、自動確認ポップアップの実地確認(7日待つか、Debugコマンドでの代替確認は済んでいる)
+
+---
+
+## 2026-08-07(続き5) UI整理: メニュー名変更・Debugコマンド削除・ダークモード対応
+
+公開前チェックリストの2つ目「UI整理」に着手した。
+
+### Helpメニュー項目名の変更
+
+foobar2000標準機能に「Check for updated components」という項目が既にあり、こちらの「Check for Component Updates」と紛らわしいと判明。**「Check Third-Party Component Updates」**に変更し、説明文にも「標準のComponent Repositoryではカバーされないサードパーティー製コンポーネント向け」であることを明記した。
+
+### Debugコマンドの削除
+
+公開前提として、「Force Automatic Check (Debug)」(automatic_check.cpp)と「Force Refresh Remote Registry (Debug)」(remote_registry.cpp)を削除した。動作確認は十分済んでいるため実害なし。Helpメニューは「Check Third-Party Component Updates」の1項目のみになった。
+
+### ダークモード対応
+
+`SDK-2025-03-07/foobar2000/SDK/coreDarkMode.h`の`fb2k::CCoreDarkModeHooks`(`helpers/DarkMode.h`のlibPPUI直リンク版ではなく、foo_ui_std側の実装を呼び出す軽量版。Minimal Dependencies方針に合致)を採用。
+
+- **Preferencesページ**: `createAuto()`でメンバー変数として保持し、コンストラクタで`AddDialogWithControls(m_wnd)`。`get_state()`に`preferences_state::dark_mode_supported`を追加。foobar2000側の設定変更に自動追従することを確認
+- **Manage Repositories...**(`repository_mapping_ui.cpp`): `ShowRepositoryMappingDialog()`内にローカル変数として`CCoreDarkModeHooks`を確保し、`DialogBoxIndirectParam`の`lParam`経由で`WM_INITDIALOG`に渡し、そこで`AddDialogWithControls(hDlg)`
+- **結果ウィンドウ**(`result_window.cpp`): 既存の`ResultWindowContext`構造体(`lParam`経由で渡している、ダイアログ表示中ずっとスタック上に生存)にメンバーとして追加
+
+### つまずいた点: ListViewの文字が見えなくなる
+
+結果ウィンドウに`AddDialogWithControls()`を適用したところ、**ダークモード・ライトモード両方で**ListViewの行の文字が見えなくなった。当初「ダークモードでは背景が暗いのに文字色が黒のまま」という仮説で`ListView_SetTextColor`等を明示的に設定したが改善せず、むしろライトモードまで巻き込んで悪化した。
+
+最終的に、**ListView自体にはダークモードフックを適用せず**(`AddDialog(hDlg)` + ボタン2つへの`AddCtrlAuto()`のみに限定)、ListViewの色は`ListView_SetBkColor` / `ListView_SetTextBkColor` / `ListView_SetTextColor`で完全に手動管理する形に変更したところ解消した。ダークモードフック側のListView用カスタム描画処理と、手動の色指定が競合していたと推測される(詳細な原因はlibPPUI内部の実装に依存するため未確認)。教訓として、**ListViewを含むダイアログでは、フックを`AddDialogWithControls()`で一括適用せず、ListViewだけ手動色管理に分離する**方が安全そうだとわかった。
+
+### 動作確認結果
+
+実機で成功。Preferencesページ・Manage Repositories...ダイアログはダークモードに正しく追従。結果ウィンドウもボタン・ダイアログ背景はテーマに追従しつつ、ListViewの文字がライト/ダーク両方のモードで正しく見えることを確認した。
+
+### 次にやること
+
+- 公開前チェックリスト残り: DB拡充、自動確認ポップアップの実地確認(7日待つか、Debugコマンドでの代替確認は済んでいる。ただしDebugコマンドは削除済みなので、実地確認が必要な場合は一時的に復活させる)
+- UI整理の続き(他に気になる点があれば都度対応)
+
+---
+
+## 2026-08-07(続き6) UI整理: フォントサイズ・ヘッダー配色・ステータス文言
+
+### フォントサイズの修正
+
+Preferencesページ・Manage Repositories...・結果ウィンドウの3ダイアログで、文字がfoobar2000標準のPreferencesページより大きく表示される問題があった。
+
+**誤った仮説(1回目)**: `DS_SHELLFONT`スタイルを指定しているのにフォント情報(pointsize/typeface)をDLGTEMPLATEに含めていないのが原因、と考え追加したが効果なし(そもそも配列サイズのミスでビルドも一度失敗)。
+
+**真因**: `DS_SETFONT`(`DS_SHELLFONT`に含まれる)は、**テンプレートに直接定義されたコントロール**にはフォントを自動適用するが、これらのダイアログは`cdit=0`で全コントロールを`WM_INITDIALOG`内の`CreateWindowEx`で動的に作っているため、そもそもテンプレート側のフォント自動適用の対象外だった。
+
+**誤った仮説(2回目)**: `WM_GETFONT`でダイアログから取得したフォントを、`EnumChildWindows`で全コントロールに`WM_SETFONT`適用すれば直ると考えたが、結果ウィンドウのListViewの文字が(それまで小さく見えていたのに)逆に大きくなってしまった。ダイアログ自身が`WM_GETFONT`で返すフォント自体が、期待していた小さいシェルフォントではなかったと判明。
+
+**最終解決**: `DS_SHELLFONT`の自動解決に頼るのをやめ、`SystemParametersInfo(SPI_GETNONCLIENTMETRICS)`で`lfMessageFont`(Windowsのダイアログ標準フォント、通常Segoe UI 9pt相当)を自前取得し、`CreateFontIndirect`で生成したフォントを、ダイアログ自身と全子コントロールへ明示的に`WM_SETFONT`で適用する方式に変更。3ファイルとも同じパターンを踏襲。これで解決した。
+
+### 結果ウィンドウ: ListViewヘッダーのダークモード対応
+
+ダークモード時、ListViewの行の色は手動設定(既存)で正しく暗くなっていたが、**列見出し(ヘッダー行)だけ背景が白いまま**残っていた。ヘッダーはListView本体とは別の子ウィンドウ(`SysHeader32`)であるため、行の色設定の対象外だったことが原因。
+
+- `SetWindowTheme(hHeader, L"DarkMode_ItemsView", NULL)`で背景色は解決
+- 文字色は追従せず黒いまま残った。ダイアログの`WM_NOTIFY`で`NM_CUSTOMDRAW`を処理しようとしたが効果なし
+- 原因: ヘッダーの`NM_CUSTOMDRAW`通知の送信先は**ヘッダーの親であるListView自身**であり、そこから先(ダイアログ)へは伝播しないため、ダイアログ側でいくら`WM_NOTIFY`を処理しても届いていなかった
+- 解決: `SetWindowSubclass`で**ListView自体をサブクラス化**し、ListViewが受け取った時点で直接`NM_CUSTOMDRAW`を処理し、`SetTextColor`で文字色を明示指定する方式に変更。これで解決した
+
+### ステータス文言の変更
+
+「Up to date」と「Update available」が見た目(先頭2単語)で紛らわしいとの指摘を受け、「Up to date」を**「Current」**に変更した。列見出しの「Latest」(バージョン番号)との混同を避ける意図もある。
+
+### 動作確認結果
+
+実機で全て成功。3ダイアログのフォントサイズがfoobar2000標準と揃い、結果ウィンドウのヘッダーもダークモードで背景・文字色ともに正しく表示され、ステータス文言も視認性が改善したことを確認した。
+
+### 次にやること
+
+- 公開前チェックリスト残り: DB拡充、自動確認ポップアップの実地確認
+- UI整理はこれでひとまず一区切り。他に気になる点があれば都度対応
+
+---
+
+## 2026-08-07(続き7) データベース拡充・PR受付・v1.0.0リリース
+
+### Remote Registryの拡充
+
+実在するGitHub Releasesページを確認しながら5件を追加(`foo_spider_monkey_panel`, `foo_uie_webview`, `foo_vis_spectrum_analyzer`, `foo_midi`、および一度追加した`foo_jscript_panel3`)。`foo_jscript_panel3`(jscript-panel/release)は追加後にリリースページ自体が消失していることが判明し、開発が放棄されたと判断。JSONの`components`配列ではなく別の`disabled`配列に移動した(パーサーは`components`しか読まないため実質的な「コメントアウト」として機能する)。理由も含めて記録し、READMEにも「Disabled / 無効化済み」節を設けた。
+
+registryリポジトリのREADMEに、登録済みコンポーネント一覧の表と、Contributing(PR歓迎、Suggest for Shared Registry...ボタンとの連携)を追記した。
+
+### 自動確認の実地確認(公開前チェックリスト最後の項目)
+
+これまでの「Force Automatic Check (Debug)」は本物の起動フロー(`on_init()` → 20秒待機)を経由していなかったため、一時的に「Reset Automatic Check Last-Run (TEMP Debug)」を追加し、最終確認日時をリセットしてfoobar2000を実際に再起動し、20秒待って自動的にポップアップが出ることを確認した。確認後、このDebugコマンドは削除した。
+
+### クラッシュレポートの調査と防御コードの追加
+
+自動確認の実地確認中、`ucrtbased.dll`(Debug版CRT)内での「Illegal operation」クラッシュが1件発生。`Call path: main_thread_callback::callback_run`とあり、タイミング的にアプリ終了処理中にワーカースレッドからのコールバックがディスパッチされたことが引き金と推測された。Debug CRT特有の自己診断(Release版では発生しない可能性が高い)である一方、念のため防御コードを追加: 手動確認・Preferencesの「Check for Updates Now」・自動確認の3箇所すべての`fb2k::inMainThread`コールバック内に`if (fb2k::mainAborter().is_aborting()) return;`を追加し、アプリ終了中は新規ウィンドウを作らず静かに打ち切るようにした。これを機にRelease構成でのビルド・動作確認も実施し、問題ないことを確認した。
+
+### 入力値のバリデーション強化
+
+Preferencesの「Check interval (days)」について、極端な値や小数の入力を防ぐため、入力欄自体を`EM_SETLIMITTEXT`で2桁までに制限し、読み取り・保存の両方で1〜30日の範囲にクランプするようにした。
+
+### v1.0.0リリース準備
+
+- `dllmain.cpp`のバージョンを`1.0.0`に更新(User-Agent文字列も統一)
+- READMEを公開版として全面更新(Features/Usageの最新化、Network Usageセクションの新設、動作環境にWindows 10を追加)
+- 両リポジトリ(`foo_component_update_checker`、`foo_component_update_checker-registry`)にMITライセンスの`LICENSE`ファイルを追加
+- コンポーネント側READMEに「Network Usage」節(通信先・送信しない情報の明記)、registryリポジトリのREADMEに「透明性(自動収集ではなくレビュー済みPRのみ)」「PRレビューの限界」を追記
+
+### 次にやること
+
+- v1.0.0としてコミット・プッシュ
+- Reddit投稿(告知 + コンポーネント情報の募集)の文面作成

@@ -13,14 +13,14 @@ foobar2000 (64bit版) 用コンポーネント。導入済みのサードパー�
 
 ## Status / 現在の状態
 
-Phase 1 and the core of Phase 2 (remote registry) are complete (private
-repo). Detection, registration, manual/automatic check, comparison,
-notification, and a shared known-components database are all implemented
-and working. Not yet released publicly.
+v1.0.0. First public release. GitHub Releases is the only supported update
+source at this time; support for other hosting sites (GitLab, personal
+sites, etc.) may be added in the future (the registry's `source` field is
+already designed with this in mind).
 
-Phase 1、およびPhase 2の中核(Remote Registry)まで完成(非公開リポジトリ)。
-検出・登録・手動/自動確認・比較・通知、そして共有の既知コンポーネントDBまで
-実装済みで動作する。まだ一般公開はしていない。
+v1.0.0。初回公開版。現時点で対応している更新情報源はGitHub Releasesのみ。
+他のサイト(GitLab、個人サイト等)への対応は将来追加する可能性がある
+(Registryの`source`フィールドは、この拡張を見込んだ設計になっている)。
 
 ## Features / 機能
 
@@ -28,32 +28,50 @@ Phase 1、およびPhase 2の中核(Remote Registry)まで完成(非公開リポ
 
 - Detect installed components (DLL name, display name, version) via the
   foobar2000 SDK
-- Register a GitHub repository per component from **Preferences → Tools →
-  Component Update Checker → Manage Repositories...** — or rely on the
-  shared [known-components registry](#remote-registry--既知コンポーネントdb)
-  for components that are already listed there
+- Register a GitHub repository per component by pasting its URL in
+  **Preferences → Tools → Component Update Checker → Manage
+  Repositories...** — or rely on the shared
+  [known-components registry](#remote-registry--既知コンポーネントdb) for
+  components that are already listed there
 - Fetch latest release info from GitHub Releases and compare versions
   (SemVer-aware, including pre-releases such as `1.0.0-beta`); shows
   "unable to compare" instead of guessing when version formats don't match
-- Manual check ("Check for Component Updates" in the Help menu, or "Check
-  for Updates Now" in Preferences)
-- Automatic check on startup (delayed, quiet unless updates are found,
-  configurable interval)
+- Manual check ("Check Third-Party Component Updates" in the Help menu, or
+  "Check for Updates Now" in Preferences), shown in a popup window with a
+  clickable link to each release page
+- Automatic check on startup (delayed ~20s, configurable interval of 1–30
+  days). By default only pops up when an update is found; this can be
+  changed in Preferences to also show communication errors, or to always
+  show a result regardless
+- Users can propose additions to the shared registry via a
+  **Suggest for Shared Registry...** button, which opens a pre-filled pull
+  request flow on GitHub — no account setup or API token needed
+- Supports Windows dark mode, matching the rest of foobar2000's Preferences
+  dialog
 - All settings live in **Preferences → Tools → Component Update Checker**
 
 **日本語**
 
 - foobar2000 SDK経由で導入済みコンポーネントを検出(DLL名・表示名・バージョン)
-- **Preferences → Tools → Component Update Checker → Manage Repositories...**
-  からコンポーネントごとにGitHub Repositoryを登録。もしくは、既に
+- **Preferences → Tools → Component Update Checker → Manage
+  Repositories...**で、リポジトリのURLを貼り付けるだけでコンポーネントごとに
+  GitHub Repositoryを登録できる。もしくは、既に
   [共有の既知コンポーネントDB](#remote-registry--既知コンポーネントdb)に
   載っているコンポーネントなら、登録不要でそのまま確認できる
 - GitHub Releasesから最新リリース情報を取得しバージョン比較(SemVer準拠、
   `1.0.0-beta`のようなprerelease表記にも対応)。表記が読み取れない場合は
   誤判定せず「比較不能」と表示
-- 手動確認(Helpメニューの「Check for Component Updates」、または
-  Preferencesの「Check for Updates Now」)
-- 起動時の自動確認(遅延実行、更新がある場合のみ通知、間隔は設定可能)
+- 手動確認(Helpメニューの「Check Third-Party Component Updates」、または
+  Preferencesの「Check for Updates Now」)。結果はポップアップウィンドウに
+  一覧表示され、各リリースページへのリンクをクリックで開ける
+- 起動時の自動確認(約20秒遅延実行、間隔は1〜30日で設定可能)。既定では
+  更新が見つかったときだけポップアップするが、Preferencesで通信エラーも
+  表示する設定や、常に結果を表示する設定に変更できる
+- **Suggest for Shared Registry...**ボタンから、共有DBへの追加をユーザー自身が
+  提案できる(GitHub上でPull Requestの下書きが自動的に開かれる。アカウント
+  設定やAPIトークンは不要)
+- Windowsのダークモードに対応し、foobar2000本体のPreferencesダイアログと
+  見た目が揃う
 - 設定は**Preferences → Tools → Component Update Checker**に集約
 
 ### Explicitly out of scope / 対象外
@@ -88,6 +106,10 @@ always take priority over this shared registry. The cache refreshes at most
 once every 24 hours; failures fall back silently to the last known-good
 cache.
 
+Contributions to the shared registry are welcome — see that repository's
+README for details, or use the **Suggest for Shared Registry...** button
+inside the component.
+
 **日本語**
 
 ローカルに登録されていないコンポーネントは、
@@ -97,10 +119,42 @@ cache.
 登録した内容は、常にこの共有DBより優先される。キャッシュは最大24時間に1回まで
 更新を試み、失敗時は直近の取得済みキャッシュへ静かにフォールバックする。
 
+共有DBへの投稿は歓迎している。詳細はそちらのリポジトリのREADMEを参照するか、
+コンポーネント内の**Suggest for Shared Registry...**ボタンを使うこと。
+
+## Network Usage / 通信について
+
+**English**
+
+This component connects to the internet on its own (to check for updates).
+Specifically:
+
+- `api.github.com` — to check installed components' GitHub Releases
+- `raw.githubusercontent.com` — to fetch the shared
+  [known-components registry](#remote-registry--既知コンポーネントdb)
+
+No personal data, library contents, playback history, or file paths are
+ever sent. Network usage is minimal (small periodic checks), but it does
+happen over your own connection — this is disclosed here so there are no
+surprises.
+
+**日本語**
+
+このコンポーネントは、更新確認のために自発的にインターネットへ接続する。
+具体的には:
+
+- `api.github.com` — 導入済みコンポーネントのGitHub Releasesを確認するため
+- `raw.githubusercontent.com` — 共有の
+  [既知コンポーネントDB](#remote-registry--既知コンポーネントdb)を取得するため
+
+個人情報・音楽ライブラリの内容・再生履歴・ファイルパス等は一切送信しない。
+通信量はごくわずか(小さな定期確認のみ)だが、ユーザー自身の回線を使って
+発生するため、事前にここで明示しておく。
+
 ## Requirements / 動作環境
 
 - foobar2000 v2.x, 64-bit
-- Windows 11
+- Windows 10/11
 
 ## Building / ビルド方法
 
@@ -111,7 +165,7 @@ cache.
    and `WTL10_01_Release` folders alongside `foo_component_update_checker.vcxproj`.
    These are not committed to this repository — obtain them separately.
 3. Open `foo_component_update_checker.slnx` in Visual Studio 2022 and build
-   the `Debug|x64` or `Release|x64` configuration.
+   the `Release|x64` configuration (or `Debug|x64` for development).
 
 The solution builds the SDK helper libraries (`pfc`, `foobar2000_SDK`,
 `foobar2000_component_client`, `shared`, `columns_ui_sdk`) as build
@@ -128,7 +182,7 @@ GitHub API responses.
    `WTL10_01_Release`フォルダを`foo_component_update_checker.vcxproj`と同じ階層に配置する。
    これらはリポジトリにはコミットしていないため、別途入手すること。
 3. Visual Studio 2022で`foo_component_update_checker.slnx`を開き、
-   `Debug|x64`または`Release|x64`構成でビルドする。
+   `Release|x64`構成でビルドする(開発時は`Debug|x64`)。
 
 ソリューションは、本体をリンクする前にSDK側のヘルパーライブラリ
 (`pfc`, `foobar2000_SDK`, `foobar2000_component_client`, `shared`, `columns_ui_sdk`)
@@ -145,10 +199,11 @@ GitHub APIのレスポンス解析には[nlohmann/json](https://github.com/nlohm
 2. Click **Check for Updates Now** — components already listed in the
    [shared registry](#remote-registry--既知コンポーネントdb) will be checked
    automatically, no registration needed.
-3. For anything not covered, click **Manage Repositories...** to associate
-   an installed component with its GitHub repository (owner/repo).
-4. Adjust **Automatically check for updates** and **Check interval (days)**
-   as needed.
+3. For anything not covered, click **Manage Repositories...** and paste the
+   component's GitHub URL (e.g. `https://github.com/owner/repo`) to
+   associate it.
+4. Adjust **Automatically check for updates**, **Check interval (days)**,
+   and the notification level as needed.
 
 **日本語**
 
@@ -157,9 +212,9 @@ GitHub APIのレスポンス解析には[nlohmann/json](https://github.com/nlohm
    [共有DB](#remote-registry--既知コンポーネントdb)に既に載っている
    コンポーネントは、登録不要でそのまま確認される
 3. カバーされていないコンポーネントは、**Manage Repositories...**から
-   GitHubリポジトリ(owner/repo)を紐付ける
-4. 必要に応じて**Automatically check for updates**と**Check interval
-   (days)**を調整する
+   GitHubのURL(例: `https://github.com/owner/repo`)を貼り付けて紐付ける
+4. 必要に応じて**Automatically check for updates**・**Check interval
+   (days)**・通知レベルを調整する
 
 ## Docs / 関連文書
 
@@ -170,5 +225,6 @@ decisions, and rationale behind them.
 
 ## License / ライセンス
 
-TBD (this repository is currently private).
-未定(現在は非公開リポジトリ)。
+MIT License. See [`LICENSE`](LICENSE) for the full text.
+
+MITライセンス。全文は[`LICENSE`](LICENSE)を参照。
