@@ -23,7 +23,8 @@
 //
 // レイアウト:
 //   [Component:      [ドロップダウン(導入済みコンポーネント一覧)]]
-//   [Repository URL:  [Edit(GitHubリポジトリのURLを貼り付ける)]]
+//   [Repository URL:  [Edit(GitHub/GitLab/Codebergいずれかのリポジトリの
+//                            URLを貼り付ける)]]
 //   [Save] [Suggest for Shared Registry...]
 //   [登録済み一覧(ListBox)]
 //   [Remove Selected]
@@ -150,26 +151,49 @@ std::string TrimWhitespace(std::string s) {
     return s.substr(start, end - start + 1);
 }
 
-// GitHubのリポジトリURL(様々な表記ゆれ)からowner/repoを取り出す。
-// 対応例:
+// リポジトリURL(様々な表記ゆれ)から source("github"/"gitlab"/"codeberg") と
+// owner/repoを取り出す。対応例:
 //   https://github.com/owner/repo
-//   http://github.com/owner/repo/
-//   github.com/owner/repo
-//   https://github.com/owner/repo.git
-//   https://github.com/owner/repo/releases (releasesタブ等が付いていても可)
+//   https://gitlab.com/owner/repo
+//   https://codeberg.org/owner/repo
+//   (いずれも http/https 有無、末尾に/releases等が付いていても、.gitサフィックスが
+//    付いていても可)
 //
-// 将来他サイト(GitLab等)に対応する際は、ここに解析パターンを追加していく想定。
-// 現時点でgithub.comと解釈できない入力は、誤登録を避けるため素直に失敗を返す
-// (DP-0009: 誤判定するくらいなら明示的にエラーにする)。
-bool TryParseGitHubUrl(std::string url, std::string& outOwner, std::string& outRepo) {
+// 現時点でこの3サイトのいずれとも解釈できない入力は、誤登録を避けるため
+// 素直に失敗を返す(DP-0009: 誤判定するくらいなら明示的にエラーにする)。
+// GitLabのグループ/サブグループ(owner部分に複数階層のパスを持つ場合)は
+// 現時点では未対応。
+bool TryParseRepositoryUrl(std::string url, std::string& outSource, std::string& outOwner, std::string& outRepo) {
     url = TrimWhitespace(url);
     if (url.empty()) return false;
 
-    const std::string marker = "github.com/";
-    size_t pos = url.find(marker);
-    if (pos == std::string::npos) return false;
+    struct SiteMarker {
+        const char* marker;
+        const char* source;
+    };
+    static const SiteMarker sites[] = {
+        { "github.com/", "github" },
+        { "gitlab.com/", "gitlab" },
+        { "codeberg.org/", "codeberg" },
+    };
 
-    std::string rest = url.substr(pos + marker.length());
+    const char* matchedSource = nullptr;
+    size_t pos = std::string::npos;
+    size_t markerLen = 0;
+
+    for (auto const& site : sites) {
+        size_t p = url.find(site.marker);
+        if (p != std::string::npos) {
+            matchedSource = site.source;
+            pos = p;
+            markerLen = std::string(site.marker).length();
+            break;
+        }
+    }
+
+    if (matchedSource == nullptr) return false;
+
+    std::string rest = url.substr(pos + markerLen);
 
     // クエリ文字列・フラグメントを切り落とす
     size_t cutPos = rest.find_first_of("?#");
@@ -194,6 +218,7 @@ bool TryParseGitHubUrl(std::string url, std::string& outOwner, std::string& outR
 
     if (owner.empty() || repo.empty()) return false;
 
+    outSource = matchedSource;
     outOwner = owner;
     outRepo = repo;
     return true;
@@ -362,16 +387,20 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             char urlBuf[512] = {};
             GetWindowTextA(GetDlgItem(hDlg, IDC_RM_URL_EDIT), urlBuf, sizeof(urlBuf));
 
-            std::string owner, repo;
-            if (!TryParseGitHubUrl(urlBuf, owner, repo)) {
+            std::string source, owner, repo;
+            if (!TryParseRepositoryUrl(urlBuf, source, owner, repo)) {
                 MessageBox(hDlg,
-                    _T("Please paste a GitHub repository URL, e.g.\nhttps://github.com/owner/repo"),
+                    _T("Please paste a repository URL from a supported site, e.g.\n")
+                    _T("https://github.com/owner/repo\n")
+                    _T("https://gitlab.com/owner/repo\n")
+                    _T("https://codeberg.org/owner/repo"),
                     _T("Repository Mapping"), MB_OK | MB_ICONWARNING);
                 return TRUE;
             }
 
             RepositoryMappingEntry entry;
             entry.dllName = dllNameBuf;
+            entry.source = source;
             entry.owner = owner;
             entry.repo = repo;
             upsertRepositoryMappingEntry(entry);
@@ -410,10 +439,13 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             char urlBuf[512] = {};
             GetWindowTextA(GetDlgItem(hDlg, IDC_RM_URL_EDIT), urlBuf, sizeof(urlBuf));
 
-            std::string owner, repo;
-            if (!TryParseGitHubUrl(urlBuf, owner, repo)) {
+            std::string source, owner, repo;
+            if (!TryParseRepositoryUrl(urlBuf, source, owner, repo)) {
                 MessageBox(hDlg,
-                    _T("Please paste a GitHub repository URL first, e.g.\nhttps://github.com/owner/repo"),
+                    _T("Please paste a repository URL from a supported site first, e.g.\n")
+                    _T("https://github.com/owner/repo\n")
+                    _T("https://gitlab.com/owner/repo\n")
+                    _T("https://codeberg.org/owner/repo"),
                     _T("Suggest for Shared Registry"), MB_OK | MB_ICONWARNING);
                 return TRUE;
             }
@@ -423,7 +455,7 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             std::string snippet;
             snippet += "    {\n";
             snippet += "      \"dll\": \"" + std::string(dllNameBuf) + "\",\n";
-            snippet += "      \"source\": \"github\",\n";
+            snippet += "      \"source\": \"" + source + "\",\n";
             snippet += "      \"owner\": \"" + owner + "\",\n";
             snippet += "      \"repo\": \"" + repo + "\"\n";
             snippet += "    },";

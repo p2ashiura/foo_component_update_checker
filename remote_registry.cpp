@@ -75,7 +75,7 @@ void tryRefreshCache(abort_callback& abort, RemoteRegistryFetchStatus* outStatus
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.0.0");
+        request->add_header("User-Agent", "foo_component_update_checker/1.1.0");
 
         file::ptr response = request->run(k_remoteRegistryUrl.c_str(), abort);
 
@@ -156,7 +156,9 @@ bool findRemoteRegistryEntry(
     std::string target = normalizeDllName(dllName);
 
     for (auto const& e : entries) {
-        if (e.source != "github") continue; // 現時点ではgithubのみ対応
+        // 対応済みのsourceのみ利用可能とみなす。未対応のsource(将来追加予定の
+        // サイトが登録された場合等)は静かにスキップする(Fail Open)。
+        if (e.source != "github" && e.source != "gitlab" && e.source != "codeberg") continue;
         if (normalizeDllName(e.dllName) == target) {
             out = e;
             return true;

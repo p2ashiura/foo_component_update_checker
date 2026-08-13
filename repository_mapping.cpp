@@ -50,6 +50,9 @@ std::vector<RepositoryMappingEntry> loadRepositoryMapping() {
         for (auto const& item : parsed) {
             RepositoryMappingEntry entry;
             entry.dllName = item.value("dll", "");
+            // 後方互換: v1.0.0以前に保存されたエントリにはsourceフィールドが無いため、
+            // その場合は"github"として扱う。
+            entry.source = item.value("source", "github");
             entry.owner = item.value("owner", "");
             entry.repo = item.value("repo", "");
 
@@ -72,6 +75,7 @@ void saveRepositoryMapping(std::vector<RepositoryMappingEntry> const& entries) {
     for (auto const& e : entries) {
         nlohmann::json item;
         item["dll"] = e.dllName;
+        item["source"] = e.source.empty() ? "github" : e.source;
         item["owner"] = e.owner;
         item["repo"] = e.repo;
         arr.push_back(std::move(item));

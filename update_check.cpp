@@ -191,6 +191,132 @@ UpdateStatus compareVersions(std::string const& installedRaw, std::string const&
     return UpdateStatus::UpToDate;
 }
 
+// ------------------------------------------------------------------
+// サイト別のリリース取得。それぞれ「取得できたか」「tag_name/リリースページURL」
+// 「(失敗時の)原因別メッセージ」を返す。
+//
+// 注意: GitLab/CodebergのAPI仕様は、GitHub(実機で動作検証済み)ほど検証が
+// できていない。エンドポイントの詳細(特にCodebergの/latestの有無、GitLabの
+// permalink/latestの挙動)は実際にビルドして動作確認しながら調整すること。
+// ------------------------------------------------------------------
+
+struct FetchedRelease {
+    std::string tagName;
+    std::string releaseUrl;
+};
+
+bool FetchGitHubLatestRelease(
+    std::string const& owner, std::string const& repo, abort_callback& abort,
+    FetchedRelease& out, std::string& errorMessage
+) {
+    pfc::string8 body;
+
+    try {
+        pfc::string8 url = "https://api.github.com/repos/";
+        url << owner.c_str() << "/" << repo.c_str() << "/releases/latest";
+
+        http_client::ptr client = http_client::get();
+        http_request::ptr request = client->create_request("GET");
+        request->add_header("User-Agent", "foo_component_update_checker/1.1.0");
+        request->add_header("Accept", "application/vnd.github+json");
+
+        file::ptr response = request->run(url, abort);
+        response->read_string_raw(body, abort);
+    } catch (std::exception const& e) {
+        errorMessage = std::string("Network/API error: ") + e.what();
+        return false;
+    }
+
+    try {
+        nlohmann::json parsed = nlohmann::json::parse(body.c_str());
+        out.tagName = parsed.value("tag_name", "");
+        out.releaseUrl = parsed.value("html_url", "");
+        return true;
+    } catch (std::exception const& e) {
+        errorMessage = std::string("Invalid response: ") + e.what();
+        return false;
+    }
+}
+
+bool FetchGitLabLatestRelease(
+    std::string const& owner, std::string const& repo, abort_callback& abort,
+    FetchedRelease& out, std::string& errorMessage
+) {
+    pfc::string8 body;
+
+    try {
+        // GitLabのプロジェクトIDは "owner/repo" をURLエンコードした形("%2F"区切り)で指定する。
+        pfc::string8 url = "https://gitlab.com/api/v4/projects/";
+        url << owner.c_str() << "%2F" << repo.c_str() << "/releases/permalink/latest";
+
+        http_client::ptr client = http_client::get();
+        http_request::ptr request = client->create_request("GET");
+        request->add_header("User-Agent", "foo_component_update_checker/1.1.0");
+
+        file::ptr response = request->run(url, abort);
+        response->read_string_raw(body, abort);
+    } catch (std::exception const& e) {
+        errorMessage = std::string("Network/API error: ") + e.what();
+        return false;
+    }
+
+    try {
+        nlohmann::json parsed = nlohmann::json::parse(body.c_str());
+        out.tagName = parsed.value("tag_name", "");
+
+        // GitLabのAPIレスポンスにはリリースページの直接URLが含まれていないため、
+        // 標準的なURL形式から組み立てる。
+        pfc::string8 url = "https://gitlab.com/";
+        url << owner.c_str() << "/" << repo.c_str() << "/-/releases/" << out.tagName.c_str();
+        out.releaseUrl = url.c_str();
+
+        return !out.tagName.empty();
+    } catch (std::exception const& e) {
+        errorMessage = std::string("Invalid response: ") + e.what();
+        return false;
+    }
+}
+
+bool FetchCodebergLatestRelease(
+    std::string const& owner, std::string const& repo, abort_callback& abort,
+    FetchedRelease& out, std::string& errorMessage
+) {
+    pfc::string8 body;
+
+    try {
+        // Codeberg(Gitea)は一覧取得APIを使い、先頭(最新)の1件だけ要求する。
+        pfc::string8 url = "https://codeberg.org/api/v1/repos/";
+        url << owner.c_str() << "/" << repo.c_str() << "/releases?limit=1&draft=false&pre-release=false";
+
+        http_client::ptr client = http_client::get();
+        http_request::ptr request = client->create_request("GET");
+        request->add_header("User-Agent", "foo_component_update_checker/1.1.0");
+
+        file::ptr response = request->run(url, abort);
+        response->read_string_raw(body, abort);
+    } catch (std::exception const& e) {
+        errorMessage = std::string("Network/API error: ") + e.what();
+        return false;
+    }
+
+    try {
+        nlohmann::json parsed = nlohmann::json::parse(body.c_str());
+
+        if (!parsed.is_array() || parsed.empty()) {
+            errorMessage = "Invalid response: no releases found for this repository.";
+            return false;
+        }
+
+        nlohmann::json const& latest = parsed[0];
+        out.tagName = latest.value("tag_name", "");
+        out.releaseUrl = latest.value("html_url", "");
+        return !out.tagName.empty();
+    } catch (std::exception const& e) {
+        errorMessage = std::string("Invalid response: ") + e.what();
+        return false;
+    }
+}
+
 } // namespace
 
 std::vector<InstalledComponentInfo> GetInstalledComponents() {
@@ -251,6 +377,7 @@ std::vector<CheckResult> RunUpdateCheck(
             RemoteRegistryEntry remote;
             if (findRemoteRegistryEntry(remoteEntries, comp.fileName, remote)) {
                 mapping.dllName = remote.dllName;
+                mapping.source = remote.source;
                 mapping.owner = remote.owner;
                 mapping.repo = remote.repo;
                 found = true;
@@ -264,38 +391,26 @@ std::vector<CheckResult> RunUpdateCheck(
         r.displayName = comp.displayName;
         r.installedVersion = comp.installedVersion;
 
-        // ネットワーク取得とJSON解析を別々に区切り、原因別のメッセージにする
-        // (DP-0035 Observable: 何が起きたか区別できるようにする)。
-        pfc::string8 body;
+        FetchedRelease release;
+        std::string errorMessage;
         bool fetchOk = false;
 
-        try {
-            pfc::string8 url = "https://api.github.com/repos/";
-            url << mapping.owner.c_str() << "/" << mapping.repo.c_str() << "/releases/latest";
-
-            http_client::ptr client = http_client::get();
-            http_request::ptr request = client->create_request("GET");
-            request->add_header("User-Agent", "foo_component_update_checker/1.0.0");
-            request->add_header("Accept", "application/vnd.github+json");
-
-            file::ptr response = request->run(url, abort);
-            response->read_string_raw(body, abort);
-            fetchOk = true;
-        } catch (std::exception const& e) {
-            r.status = UpdateStatus::Error;
-            r.errorMessage = std::string("Network/API error: ") + e.what();
+        if (mapping.source == "gitlab") {
+            fetchOk = FetchGitLabLatestRelease(mapping.owner, mapping.repo, abort, release, errorMessage);
+        } else if (mapping.source == "codeberg") {
+            fetchOk = FetchCodebergLatestRelease(mapping.owner, mapping.repo, abort, release, errorMessage);
+        } else {
+            // "github"、または未設定(後方互換)の場合はGitHubとして扱う。
+            fetchOk = FetchGitHubLatestRelease(mapping.owner, mapping.repo, abort, release, errorMessage);
         }
 
         if (fetchOk) {
-            try {
-                nlohmann::json parsed = nlohmann::json::parse(body.c_str());
-                r.latestVersion = parsed.value("tag_name", "");
-                r.releaseUrl = parsed.value("html_url", "");
-                r.status = compareVersions(r.installedVersion, r.latestVersion);
-            } catch (std::exception const& e) {
-                r.status = UpdateStatus::Error;
-                r.errorMessage = std::string("Invalid response: ") + e.what();
-            }
+            r.latestVersion = release.tagName;
+            r.releaseUrl = release.releaseUrl;
+            r.status = compareVersions(r.installedVersion, r.latestVersion);
+        } else {
+            r.status = UpdateStatus::Error;
+            r.errorMessage = errorMessage;
         }
 
         results.push_back(std::move(r));

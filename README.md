@@ -13,14 +13,14 @@ foobar2000 (64bit版) 用コンポーネント。導入済みのサードパー�
 
 ## Status / 現在の状態
 
-v1.0.0. First public release. GitHub Releases is the only supported update
-source at this time; support for other hosting sites (GitLab, personal
-sites, etc.) may be added in the future (the registry's `source` field is
-already designed with this in mind).
+v1.1.0. GitHub, GitLab, and Codeberg Releases are supported as update
+sources. Support for additional sites (personal sites, SourceForge, etc.)
+may be added in the future (the registry's `source` field is designed with
+this in mind).
 
-v1.0.0。初回公開版。現時点で対応している更新情報源はGitHub Releasesのみ。
-他のサイト(GitLab、個人サイト等)への対応は将来追加する可能性がある
-(Registryの`source`フィールドは、この拡張を見込んだ設計になっている)。
+v1.1.0。GitHub・GitLab・CodebergのReleasesに対応。他のサイト(個人サイト、
+SourceForge等)への対応は将来追加する可能性がある(Registryの`source`
+フィールドは、この拡張を見込んだ設計になっている)。
 
 ## Features / 機能
 
@@ -28,14 +28,15 @@ v1.0.0。初回公開版。現時点で対応している更新情報源はGitHu
 
 - Detect installed components (DLL name, display name, version) via the
   foobar2000 SDK
-- Register a GitHub repository per component by pasting its URL in
+- Register a repository per component by pasting its URL in
   **Preferences → Tools → Component Update Checker → Manage
-  Repositories...** — or rely on the shared
+  Repositories...** (GitHub, GitLab, and Codeberg are supported; the site
+  is detected automatically from the URL) — or rely on the shared
   [known-components registry](#remote-registry--既知コンポーネントdb) for
   components that are already listed there
-- Fetch latest release info from GitHub Releases and compare versions
-  (SemVer-aware, including pre-releases such as `1.0.0-beta`); shows
-  "unable to compare" instead of guessing when version formats don't match
+- Fetch latest release info and compare versions (SemVer-aware, including
+  pre-releases such as `1.0.0-beta`); shows "unable to compare" instead of
+  guessing when version formats don't match
 - Manual check ("Check Third-Party Component Updates" in the Help menu, or
   "Check for Updates Now" in Preferences), shown in a popup window with a
   clickable link to each release page
@@ -55,12 +56,12 @@ v1.0.0。初回公開版。現時点で対応している更新情報源はGitHu
 - foobar2000 SDK経由で導入済みコンポーネントを検出(DLL名・表示名・バージョン)
 - **Preferences → Tools → Component Update Checker → Manage
   Repositories...**で、リポジトリのURLを貼り付けるだけでコンポーネントごとに
-  GitHub Repositoryを登録できる。もしくは、既に
+  登録できる(GitHub・GitLab・Codebergに対応。サイトはURLから自動判定される)。
+  もしくは、既に
   [共有の既知コンポーネントDB](#remote-registry--既知コンポーネントdb)に
   載っているコンポーネントなら、登録不要でそのまま確認できる
-- GitHub Releasesから最新リリース情報を取得しバージョン比較(SemVer準拠、
-  `1.0.0-beta`のようなprerelease表記にも対応)。表記が読み取れない場合は
-  誤判定せず「比較不能」と表示
+- 最新リリース情報を取得しバージョン比較(SemVer準拠、`1.0.0-beta`のような
+  prerelease表記にも対応)。表記が読み取れない場合は誤判定せず「比較不能」と表示
 - 手動確認(Helpメニューの「Check Third-Party Component Updates」、または
   Preferencesの「Check for Updates Now」)。結果はポップアップウィンドウに
   一覧表示され、各リリースページへのリンクをクリックで開ける
@@ -130,6 +131,8 @@ This component connects to the internet on its own (to check for updates).
 Specifically:
 
 - `api.github.com` — to check installed components' GitHub Releases
+- `gitlab.com` — to check installed components' GitLab Releases
+- `codeberg.org` — to check installed components' Codeberg Releases
 - `raw.githubusercontent.com` — to fetch the shared
   [known-components registry](#remote-registry--既知コンポーネントdb)
 
@@ -144,6 +147,8 @@ surprises.
 具体的には:
 
 - `api.github.com` — 導入済みコンポーネントのGitHub Releasesを確認するため
+- `gitlab.com` — 導入済みコンポーネントのGitLab Releasesを確認するため
+- `codeberg.org` — 導入済みコンポーネントのCodeberg Releasesを確認するため
 - `raw.githubusercontent.com` — 共有の
   [既知コンポーネントDB](#remote-registry--既知コンポーネントdb)を取得するため
 
@@ -200,8 +205,8 @@ GitHub APIのレスポンス解析には[nlohmann/json](https://github.com/nlohm
    [shared registry](#remote-registry--既知コンポーネントdb) will be checked
    automatically, no registration needed.
 3. For anything not covered, click **Manage Repositories...** and paste the
-   component's GitHub URL (e.g. `https://github.com/owner/repo`) to
-   associate it.
+   component's repository URL (GitHub, GitLab, or Codeberg — e.g.
+   `https://github.com/owner/repo`) to associate it.
 4. Adjust **Automatically check for updates**, **Check interval (days)**,
    and the notification level as needed.
 
@@ -212,7 +217,8 @@ GitHub APIのレスポンス解析には[nlohmann/json](https://github.com/nlohm
    [共有DB](#remote-registry--既知コンポーネントdb)に既に載っている
    コンポーネントは、登録不要でそのまま確認される
 3. カバーされていないコンポーネントは、**Manage Repositories...**から
-   GitHubのURL(例: `https://github.com/owner/repo`)を貼り付けて紐付ける
+   リポジトリのURL(GitHub・GitLab・Codeberg。例: `https://github.com/owner/repo`)
+   を貼り付けて紐付ける
 4. 必要に応じて**Automatically check for updates**・**Check interval
    (days)**・通知レベルを調整する
 

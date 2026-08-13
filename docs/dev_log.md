@@ -804,3 +804,69 @@ Preferencesの「Check interval (days)」について、極端な値や小数の
 
 - v1.0.0としてコミット・プッシュ
 - Reddit投稿(告知 + コンポーネント情報の募集)の文面作成
+
+---
+
+## 2026-08-08 GitLab / Codeberg対応
+
+v1.0.0公開・Reddit投稿を経て、コメントで寄せられた情報の中にGitHub以外(marc2k3.github.io、SourceForge等)で配布されているコンポーネントの実例があったため、対応サイトの拡大に着手した。まずはAPIが構造化されている**GitLab**と**Codeberg**(Gitea API)から対応した。
+
+### 実装
+
+- `RepositoryMappingEntry`(`repository_mapping.h`)に`source`フィールドを追加。既存の保存データ(v1.0.0以前、sourceフィールド無し)は読み込み時に`"github"`として扱う後方互換を維持
+- `repository_mapping_ui.cpp`の`TryParseGitHubUrl`を`TryParseRepositoryUrl`に拡張し、`github.com` / `gitlab.com` / `codeberg.org`のいずれかを自動判定
+- `update_check.cpp`に`FetchGitHubLatestRelease` / `FetchGitLabLatestRelease` / `FetchCodebergLatestRelease`を実装し、`mapping.source`に応じて分岐
+  - GitLab: `GET /api/v4/projects/{owner}%2F{repo}/releases/permalink/latest`。レスポンスにリリースページの直接URLが含まれないため、`https://gitlab.com/{owner}/{repo}/-/releases/{tag_name}`という形で自前組み立て
+  - Codeberg(Gitea API): `GET /api/v1/repos/{owner}/{repo}/releases?limit=1&draft=false&pre-release=false`(配列で返るため先頭要素を使用)
+- `remote_registry.cpp`の`findRemoteRegistryEntry`が対応済みsourceとして`gitlab`/`codeberg`も受け付けるよう更新
+
+### 動作確認: GitLab側の403エラーの原因調査
+
+最初にテストした際、登録したGitLabリポジトリで403 Forbiddenが発生。調査の結果、**GitLab側でプロジェクトごとに「Releases機能」自体を無効化できる設定があり、無効化されていると公開リポジトリでも(可視性やトークン権限に関わらず)常に403を返す**という既知の仕様が原因と判明(URLの組み立てミスではなかった)。確実にReleases機能が有効な実例として`inkscape/inkscape`(GitLabへ移行済み、115件のリリースあり)を使って再検証した。
+
+### 動作確認結果
+
+実機で両方とも成功。
+
+- **Codeberg**(`Codeberg/pages-server`): `Update available`と正しく表示され、フル機能(取得・比較・表示)が動作することを確認
+- **GitLab**(`inkscape/inkscape`): `Unable to compare`と表示されたが、これは取得自体は成功しており、Inkscapeのタグ命名規則(`INKSCAPE_1_4`)がSemVer形式に沿っていないための正常な挙動(DP-0009: 誤判定するくらいなら比較不能と表示する、の意図通り)。自前組み立てしたリリースページURLも、実際のURLと一致することを確認できた
+
+これで3サイト(GitHub / GitLab / Codeberg)への対応が実データで検証できた。
+
+### 次にやること
+
+- READMEをGitLab/Codeberg対応に合わせて更新
+- registryリポジトリ(known_components.json)にも、GitLab/Codeberg由来のエントリを追加していく
+- 他のホスティングサイト(SourceForge、個人サイト等)への対応は、構造化されたAPIが無いため難易度が上がる。優先度は下げつつ検討
+
+---
+
+## 2026-08-08(続き) v1.1.0リリース: バージョン更新・Excelマクロ対応・README更新
+
+### バージョン更新
+
+`dllmain.cpp`を`1.1.0`に更新(GitLab/Codeberg対応を含むマイナーバージョンアップ)。User-Agent文字列(`remote_registry.cpp`、`update_check.cpp`)も統一した。
+
+### Excelマクロ(registry_manager.xlsm)の複数サイト対応
+
+以前作成したDB管理用Excelマクロが、GitHub専用の`ParseGitHubUrl`のままだったため、コンポーネント本体側の`TryParseRepositoryUrl`と同じロジックで`ParseRepositoryUrl`(VBA)に拡張した。
+
+- `github.com` / `gitlab.com` / `codeberg.org`を自動判定し、`source`フィールドに反映
+- Status列に判定結果(例: `OK (gitlab)`)を表示するようにし、目視確認しやすくした
+- README用テーブル生成も、`owner/repo (source)`という形式でリンクを組み立てるよう変更
+- テンプレート(`registry_manager_template.xlsx`)の例示行を3サイト分に増やし、Instructionsシートにも対応サイトを明記
+
+ユーザーの環境で実際にマクロを動かして動作確認済み。
+
+### README更新
+
+本体・registry両方のREADMEを、GitHub限定の表現からGitHub/GitLab/Codeberg対応に更新した。
+
+- 本体側: Status、Features、Usage、Network Usage(接続先に`gitlab.com`/`codeberg.org`を追加)を更新
+- registry側: 冒頭説明・Schemaの説明を汎用化(`source`は3値のいずれか、という説明に変更)。登録済みコンポーネント一覧表は、Excelマクロの出力形式(`owner/repo (source)`)にそのまま合わせ、将来はマクロの出力をコピペするだけで表を更新できるようにした
+
+### 次にやること
+
+- v1.1.0としてコミット・プッシュ(本体・registry両リポジトリ)
+- registryへのGitLab/Codeberg由来エントリの追加(現状registryの中身は全てGitHub)
+- 他のホスティングサイト(SourceForge、個人サイト等)への対応は、構造化されたAPIが無いため難易度が上がる。優先度は下げつつ検討
