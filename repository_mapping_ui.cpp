@@ -23,15 +23,17 @@
 //
 // レイアウト:
 //   [Component:      [ドロップダウン(導入済みコンポーネント一覧)]]
-//   [Repository URL:  [Edit(GitHub/GitLab/Codebergいずれかのリポジトリの
-//                            URLを貼り付ける)]]
+//   [Repository URL:  [Edit(GitHub/GitLab/Codeberg/marc2k3.github.io
+//                            いずれかのURLを貼り付ける)]]
 //   [Save] [Suggest for Shared Registry...]
 //   [登録済み一覧(ListBox)]
 //   [Remove Selected]
 //   [Close]
 //
-// URLはowner/repoへ解析してから保存する(TryParseGitHubUrl)。保存形式自体は
-// 従来通りowner/repo文字列のままなので、Remote Registryとの互換性に影響しない。
+// URLは source ごとに owner/repo(github/gitlab/codeberg)または url(marc2k3)
+// へ解析してから保存する(TryParseRepositoryUrl)。owner/repoモデルの保存形式
+// 自体は従来通りowner/repo文字列のままなので、Remote Registryとの互換性に
+// 影響しない。
 // ------------------------------------------------------------------
 
 namespace {
@@ -114,7 +116,12 @@ void RefreshEntryListBox(HWND hDlg) {
     auto entries = loadRepositoryMapping();
     for (auto const& e : entries) {
         pfc::string8 line;
-        line << e.dllName.c_str() << "  ->  " << e.owner.c_str() << "/" << e.repo.c_str();
+        if (e.source == "marc2k3" || e.source == "sourceforge") {
+            // urlモデル: owner/repoが空なので、代わりに登録ページURLを表示する。
+            line << e.dllName.c_str() << "  ->  " << e.url.c_str();
+        } else {
+            line << e.dllName.c_str() << "  ->  " << e.owner.c_str() << "/" << e.repo.c_str();
+        }
         SendMessageA(listBox, LB_ADDSTRING, 0, (LPARAM)line.c_str());
     }
 }
@@ -151,21 +158,74 @@ std::string TrimWhitespace(std::string s) {
     return s.substr(start, end - start + 1);
 }
 
-// リポジトリURL(様々な表記ゆれ)から source("github"/"gitlab"/"codeberg") と
-// owner/repoを取り出す。対応例:
+// リポジトリURL(様々な表記ゆれ)から source を判定し、
+//   - owner/repoモデル(github/gitlab/codeberg) の場合は outOwner/outRepo
+//   - urlモデル(marc2k3) の場合は outUrl
+// を埋める。対応例:
 //   https://github.com/owner/repo
 //   https://gitlab.com/owner/repo
 //   https://codeberg.org/owner/repo
-//   (いずれも http/https 有無、末尾に/releases等が付いていても、.gitサフィックスが
-//    付いていても可)
+//   https://marc2k3.github.io/component/xxx/
+//   (github/gitlab/codebergはhttp/https有無、末尾に/releases等が付いていても、
+//    .gitサフィックスが付いていても可)
 //
-// 現時点でこの3サイトのいずれとも解釈できない入力は、誤登録を避けるため
+// 現時点でこれらのいずれとも解釈できない入力は、誤登録を避けるため
 // 素直に失敗を返す(DP-0009: 誤判定するくらいなら明示的にエラーにする)。
 // GitLabのグループ/サブグループ(owner部分に複数階層のパスを持つ場合)は
 // 現時点では未対応。
-bool TryParseRepositoryUrl(std::string url, std::string& outSource, std::string& outOwner, std::string& outRepo) {
+bool TryParseRepositoryUrl(
+    std::string url, std::string& outSource, std::string& outOwner,
+    std::string& outRepo, std::string& outUrl
+) {
     url = TrimWhitespace(url);
     if (url.empty()) return false;
+
+    // marc2k3.github.io: owner/repoモデルではなく、コンポーネント個別ページの
+    // URLをそのまま識別子として保持する特別扱い。
+    if (url.find("marc2k3.github.io/") != std::string::npos) {
+        std::string normalized = url;
+
+        // クエリ文字列・フラグメントを切り落とす
+        size_t cutPos = normalized.find_first_of("?#");
+        if (cutPos != std::string::npos) normalized = normalized.substr(0, cutPos);
+
+        // スキームが無ければ https:// を補う
+        if (normalized.compare(0, 8, "https://") != 0 &&
+            normalized.compare(0, 7, "http://") != 0) {
+            normalized = "https://" + normalized;
+        }
+
+        outSource = "marc2k3";
+        outOwner = "";
+        outRepo = "";
+        outUrl = normalized;
+        return true;
+    }
+
+    // sourceforge.net: marc2k3と同様にurlモデル。ただしこちらはSourceForge
+    // というプラットフォーム自体の共通機能(RSSフィード)を使うため、特定の
+    // プロジェクトに限らず汎用的に対応できる。登録はプロジェクトのファイル
+    // 一覧ページ(フォルダ)のURLで行う。
+    if (url.find("sourceforge.net/projects/") != std::string::npos) {
+        std::string normalized = url;
+
+        size_t cutPos = normalized.find_first_of("?#");
+        if (cutPos != std::string::npos) normalized = normalized.substr(0, cutPos);
+
+        if (normalized.compare(0, 8, "https://") != 0 &&
+            normalized.compare(0, 7, "http://") != 0) {
+            normalized = "https://" + normalized;
+        }
+
+        // 末尾にスラッシュが無ければ揃えておく(フォルダページである前提のため)。
+        if (normalized.back() != '/') normalized += "/";
+
+        outSource = "sourceforge";
+        outOwner = "";
+        outRepo = "";
+        outUrl = normalized;
+        return true;
+    }
 
     struct SiteMarker {
         const char* marker;
@@ -221,6 +281,7 @@ bool TryParseRepositoryUrl(std::string url, std::string& outSource, std::string&
     outSource = matchedSource;
     outOwner = owner;
     outRepo = repo;
+    outUrl = ""; // owner/repoベースのサイトではurlは使わない
     return true;
 }
 
@@ -387,13 +448,15 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             char urlBuf[512] = {};
             GetWindowTextA(GetDlgItem(hDlg, IDC_RM_URL_EDIT), urlBuf, sizeof(urlBuf));
 
-            std::string source, owner, repo;
-            if (!TryParseRepositoryUrl(urlBuf, source, owner, repo)) {
+            std::string source, owner, repo, url;
+            if (!TryParseRepositoryUrl(urlBuf, source, owner, repo, url)) {
                 MessageBox(hDlg,
                     _T("Please paste a repository URL from a supported site, e.g.\n")
                     _T("https://github.com/owner/repo\n")
                     _T("https://gitlab.com/owner/repo\n")
-                    _T("https://codeberg.org/owner/repo"),
+                    _T("https://codeberg.org/owner/repo\n")
+                    _T("https://marc2k3.github.io/component/xxx/\n")
+                    _T("https://sourceforge.net/projects/<project>/files/<folder>/"),
                     _T("Repository Mapping"), MB_OK | MB_ICONWARNING);
                 return TRUE;
             }
@@ -403,6 +466,7 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             entry.source = source;
             entry.owner = owner;
             entry.repo = repo;
+            entry.url = url;
             upsertRepositoryMappingEntry(entry);
 
             RefreshEntryListBox(hDlg);
@@ -439,25 +503,32 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             char urlBuf[512] = {};
             GetWindowTextA(GetDlgItem(hDlg, IDC_RM_URL_EDIT), urlBuf, sizeof(urlBuf));
 
-            std::string source, owner, repo;
-            if (!TryParseRepositoryUrl(urlBuf, source, owner, repo)) {
+            std::string source, owner, repo, url;
+            if (!TryParseRepositoryUrl(urlBuf, source, owner, repo, url)) {
                 MessageBox(hDlg,
                     _T("Please paste a repository URL from a supported site first, e.g.\n")
                     _T("https://github.com/owner/repo\n")
                     _T("https://gitlab.com/owner/repo\n")
-                    _T("https://codeberg.org/owner/repo"),
+                    _T("https://codeberg.org/owner/repo\n")
+                    _T("https://marc2k3.github.io/component/xxx/\n")
+                    _T("https://sourceforge.net/projects/<project>/files/<folder>/"),
                     _T("Suggest for Shared Registry"), MB_OK | MB_ICONWARNING);
                 return TRUE;
             }
 
             // known_components.json の "components" 配列にそのまま貼り付けられる形の
-            // JSONスニペットを組み立てる。
+            // JSONスニペットを組み立てる。source によって owner/repo か url かが
+            // 変わる(repository_mapping.h / remote_registry.h と同じモデル)。
             std::string snippet;
             snippet += "    {\n";
             snippet += "      \"dll\": \"" + std::string(dllNameBuf) + "\",\n";
             snippet += "      \"source\": \"" + source + "\",\n";
-            snippet += "      \"owner\": \"" + owner + "\",\n";
-            snippet += "      \"repo\": \"" + repo + "\"\n";
+            if (source == "marc2k3" || source == "sourceforge") {
+                snippet += "      \"url\": \"" + url + "\"\n";
+            } else {
+                snippet += "      \"owner\": \"" + owner + "\",\n";
+                snippet += "      \"repo\": \"" + repo + "\"\n";
+            }
             snippet += "    },";
 
             bool copied = CopyTextToClipboard(hDlg, snippet);

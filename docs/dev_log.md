@@ -870,3 +870,156 @@ v1.0.0公開・Reddit投稿を経て、コメントで寄せられた情報の�
 - v1.1.0としてコミット・プッシュ(本体・registry両リポジトリ)
 - registryへのGitLab/Codeberg由来エントリの追加(現状registryの中身は全てGitHub)
 - 他のホスティングサイト(SourceForge、個人サイト等)への対応は、構造化されたAPIが無いため難易度が上がる。優先度は下げつつ検討
+
+---
+
+## 2026-08-16 marc2k3.github.io対応
+
+「他のホスティングサイトへの対応」の1つ目として、コミュニティで最も有名な個人配布サイトである`marc2k3.github.io`(marc2k3氏、Cover Utils等の作者)への対応に着手した。
+
+### 方針検討
+
+GitHub/GitLab/Codebergと違い、構造化されたReleases APIを持たない個人サイトなので、先に設計方針を決めた。
+
+- 実サイト(`https://marc2k3.github.io/component/cover-utils/`)を確認したところ、Zensicalという静的サイトジェネレータ製で、`class="md-button md-button--primary"`のDownloadボタンにファイル名(バージョン番号入り)が埋め込まれている構造だった
+- 「このサイト専用のパーサーをまず作る」か「ユーザーが正規表現を手動登録する汎用機構にする」かで検討し、実例1件(marc2k3)に特化したパーサーを先に作る方針にした。将来他の個人サイトが出てきたら都度追加する
+
+### データモデル拡張: urlモデルの追加
+
+`RepositoryMappingEntry`(`repository_mapping.h`)・`RemoteRegistryEntry`(`remote_registry.h`)の両方に`url`フィールドを追加。`source`によって必須フィールドが変わる設計にした。
+
+- `github` / `gitlab` / `codeberg`: 従来通り`owner` + `repo`が必須(owner/repoモデル)
+- `marc2k3`: `url`(コンポーネント個別ページのURL)が必須、`owner`/`repo`は空文字(urlモデル)
+
+`FetchMarc2k3LatestRelease`(`update_check.cpp`)は、登録ページを取得し、Downloadボタンのhrefからファイル名末尾の`-<version>.fb2k-component`を正規表現で抜き出す実装。`releaseUrl`は専用のリリースページが無いため、登録ページURLをそのまま使う。
+
+### つまずいた点(1): バリデーションの見落とし
+
+`repository_mapping.cpp`の`loadRepositoryMapping()`は「`owner`と`repo`が両方揃っていないと無効なエントリとして捨てる」というowner/repoモデル専用のバリデーションのままだった。urlモデルのエントリは`owner`/`repo`が空なので、**保存はできるのに次回読み込み時に静かに消える**という見つけにくいバグになっていた。`source`に応じて必須フィールドを出し分ける形(`isValidEntry`)に直して解消した。
+
+### つまずいた点(2): 生文字列リテラルの自己衝突
+
+`FetchMarc2k3LatestRelease`の正規表現`R"(class="md-button md-button--primary"\s+href="([^"]+)")"`が、正規表現の中身自体に`)"`という並び(`([^"]+)"`の部分)を含んでいたため、C++の生文字列リテラルがそこで早期終端し、`error C2001: 文字列リテラル内の改行`という構文エラーになった。カスタム区切り子(`R"RX( ... )RX"`)に変更して解決。以降、`)"`を含みうる正規表現には全てカスタム区切り子を使う方針にした。
+
+### つまずいた点(3): 文字コード(BOM)の問題
+
+新規追加したファイル(`repository_mapping.h`/`.cpp`、`remote_registry.h`/`.cpp`)にUTF-8 BOMを付け忘れていた。プロジェクトの既存ファイルは全てBOM付きUTF-8で統一されている(2026-08-06のC4819警告の教訓)が、今回はその前提を見落とした。BOM無しだとMSVCがシステムのコードページ(932=Shift-JIS)で解釈し、日本語コメント中のマルチバイト文字が偶然`\`や`"`と誤認識されて大量の構文エラーが連鎖する、という同じ種類の問題を再び踏んだ形になった。今後、新規ファイル作成時はBOM付与を最初のチェック項目にする。
+
+### 動作確認結果
+
+実機で成功。`https://marc2k3.github.io/component/cover-utils/`を登録・保存し、一覧表示・最新バージョン(`1.7`)の取得・比較・リリースページへのリンク遷移まで確認。同サイトの別コンポーネント(Last.fm Playcount Sync等)でも問題なく動作し、サイト内で汎用的に使えることを確認した。
+
+### 次にやること
+
+- SourceForgeへの対応を検討
+
+---
+
+## 2026-08-16(続き) SourceForge対応
+
+`sacddecoder`(Super Audio CD Decoder、複数のfoobar2000コンポーネントを配布)プロジェクトを題材に、SourceForge対応を実装した。
+
+### 設計: marc2k3と違い汎用対応が可能
+
+SourceForgeは各プロジェクトが共通して持つ**ファイル配布用RSSフィード**(`/projects/{project}/rss?path={path}`)を使えることが分かった。これはプラットフォーム自体の機能であり、marc2k3のような個人サイト固有の構造ではないため、**プロジェクトを問わず汎用的に対応できる**。データモデルもmarc2k3で追加済みの`url`フィールドをそのまま流用でき、スキーマ変更は不要だった(`source = "sourceforge"`、`url` = 登録したフォルダのファイル一覧ページURL)。
+
+実データ(`sacddecoder`の`foo_input_sacd`フォルダ)を確認し、2点の設計上の注意点を発見した。
+
+- 同一バージョンに対して複数ファイル(`foo_input_sacd-2.0.25.zip`と`foo_input_sacd-2.0.25_for_foobar-1.6.x.zip`のような互換ビルド用派生)が存在することがある
+- ページ上の「Download Latest Version」ボタンは、実際に一番新しいファイルとは食い違う場合がある(メンテナーが意図的に安定版を指定していると思われる)ため信用できない。RSS(実際のアップロード日時順)を見る必要がある
+
+### 実装
+
+`FetchSourceForgeLatestRelease`(`update_check.cpp`)を追加。
+
+1. 登録されたフォルダURLから正規表現でプロジェクト名とパスを抜き出し、RSS URLを組み立てる
+2. RSSの`<item><title>`を新しい順(RSSの並び順)に走査し、`-([0-9]+(?:\.[0-9]+)*)\.(zip|rar|7z|fb2k-component)$`に**厳密に**マッチする最初のファイルを採用する
+
+この正規表現1つで、readme.txt等の非パッケージファイル(拡張子不一致)と、`_for_foobar-1.6.x.zip`のような派生ビルド(バージョン部分が数字だけで終わらない)の両方を、特別な除外リストを持たずに自然にスキップできることを確認した(DP-0009: 誤判定するくらいなら比較不能/スキップ)。
+
+`TryParseRepositoryUrl`(`repository_mapping_ui.cpp`)にも`sourceforge.net/projects/`判定を追加。marc2k3と同じurlモデルなので、一覧表示・Suggest for Shared Registryのsnippet生成もmarc2k3と共通の分岐(`source == "marc2k3" || source == "sourceforge"`)にまとめた。
+
+### つまずいた点: isValidEntryへの追加漏れ(marc2k3対応と同じ種類のバグを再発)
+
+`sourceforge`を実装した際、`repository_mapping.cpp`の`isValidEntry()`に`marc2k3`しか書いておらず、`sourceforge`を追加し忘れていた。結果、marc2k3対応時に直したのと全く同じ症状(**保存した直後の一覧再読み込みで、バリデーションに引っかかって静かに消える**)を自分で再現してしまった。urlモデルのsourceを新設するたびに、このチェック箇所へ確実に追加することを今後のチェックリストに入れる。
+
+### 動作確認結果
+
+実機で成功。`https://sourceforge.net/projects/sacddecoder/files/foo_input_sacd/`を登録し、一覧表示・最新バージョン(`2.0.25`。派生ビルドではなく正しい方)の取得・比較まで確認。同プロジェクトの別フォルダ(`sacd_metabase`等)でも別コンポーネントとして問題なく動作し、プロジェクトを問わない汎用実装になっていることを確認した。
+
+これで対応サイトはGitHub / GitLab / Codeberg(owner/repoモデル、構造化API)、marc2k3(urlモデル、サイト固有パーサー)、SourceForge(urlモデル、汎用RSSパーサー)の5種類になった。
+
+### 次にやること
+
+- Excelマクロ(registry_manager.xlsm)をurlモデル対応に更新
+- v1.2.0としてリリース
+
+---
+
+## 2026-08-16(続き2) Excelマクロのurlモデル対応・v1.2.0リリース
+
+### Excelマクロ(registry_manager.xlsm)の更新
+
+`ParseRepositoryUrl`(VBA)を、コンポーネント本体側の`TryParseRepositoryUrl`(marc2k3/sourceforge対応後の4引数版)と同じ判定順序・同じ正規化ロジックに揃えて拡張した。
+
+- `IsUrlModelSource(source)`ヘルパーを追加し、`marc2k3`/`sourceforge`ならurlモデル、それ以外ならowner/repoモデルとして`BuildJsonArray`(JSON生成)・`BuildMarkdownTable`(README用テーブル生成)の両方で出し分ける
+- urlモデルのMarkdownテーブル表示は、長いURLをそのまま出すと見づらいため`UrlPathForDisplay`で`https://`プレフィックスと末尾スラッシュを除いた短縮形にし、`source: 短縮URL`というラベルでリンクする形にした
+
+ユーザーの環境で実際にマクロを動かし、JSON・Markdownともに問題なく生成されることを確認済み。
+
+### v1.2.0リリース準備
+
+- `dllmain.cpp`のバージョンを`1.2.0`に更新
+- User-Agent文字列(`remote_registry.cpp`1箇所、`update_check.cpp`5箇所)を`1.2.0`に統一
+- 本体・registry両方のREADMEを更新
+  - 本体側: Status/Features/Network Usage/Usageに、marc2k3.github.io・SourceForgeを追加。「Explicitly out of scope」にサイト固有パーサー(marc2k3)の構造的な脆さについての注記を新設(サイト構造が変わった場合、誤判定ではなく明示的なエラーとして確認失敗を表示する、という既存のDP-0009方針をユーザー向けに明文化したもの)
+  - registry側: Schemaの説明にurlモデル(`marc2k3`/`sourceforge`)のJSON例を追加。`source`によって必要なフィールドが変わることを明記
+  - registry側README修正時、「Registered Componentsテーブルの日本語対訳」が本来の位置(English直後)ではなく別の節の後ろに紛れ込んでいた(前バージョンからの既存の位置ズレ)のを本来の位置に修正した
+
+### 動作確認結果
+
+ビルドして`Help`メニュー・コンポーネント一覧上で`1.2.0`と表示されることを確認。
+
+### 次にやること
+
+- v1.2.0としてコミット・プッシュ(本体・registry両リポジトリ)
+- registryへのmarc2k3/sourceforge由来エントリの追加(現状registryの中身は全てGitHub)
+- 他のホスティングサイトへの対応は、引き続き優先度を見ながら検討
+
+---
+
+## 2026-08-16(続き3) Remote Registryキャッシュの再発見・dllmainの説明文更新
+
+### Remote Registryキャッシュを踏んだ
+
+registryリポジトリにmarc2k3/SourceForge対応のエントリ(`known_components.json`)を実際にプッシュし、コンポーネント側で「Check for Updates Now」を実行しても、SourceForge/marc2k3で公開されているコンポーネントの情報が反映されない、という報告があった。
+
+原因は`remote_registry.cpp`の`shouldRefetch()`(24時間キャッシュ)だった。開発中ずっと手動確認を繰り返していたため、プッシュ前の時点で一度でも確認を実行していれば、その時のキャッシュ(SourceForge対応前の中身)が24時間経過するまでそのまま使われ続ける。Repository Mappingでの手動登録での確認はこのキャッシュを経由しない(`findRepositoryMapping`はローカル保存データを毎回そのまま読む)ため気付きにくく、しかも以前のバージョンでも同じ現象に遭遇していたが「そのうち直った」で済ませてしまい、24時間キャッシュの存在自体を忘れていた、とのこと。
+
+動作確認のため、`remote_registry.cpp`にTEMP Debugコマンド「Force Refresh Remote Registry (TEMP Debug)」を一時的に追加した。記録済みの最終取得時刻を0にリセットし、次回の`GetRemoteRegistryEntries()`で強制的に再取得させる仕組み。実行して読み込んだ全エントリ(DLL名・source)をコンソールに出力させ、キャッシュが原因であることを確認できた。確認後、このコマンドは削除した(2026-08-07にも一度同種のコマンドを削除しており、今回で2回目)。
+
+**教訓**: Remote Registryのキャッシュ挙動(24時間に1回しか更新しない)は、開発中の動作確認と相性が悪く、繰り返し勘違いの原因になっている。次に同じ状況に遭遇したときのために、この経緯をdev logに残しておく。
+
+### dllmainの説明文をAlbum Trainのスタイルに統一
+
+`foo_albumtrain`側で採用している説明文の書式(機能の一文説明 → 空行 → 著作権表示 → ライセンス → リポジトリURL)に、`foo_component_update_checker`側の`DECLARE_COMPONENT_VERSION`も揃えた。
+
+```
+Checks installed third-party foobar2000 components for available updates and notifies you when one is found — it does not auto-download, auto-install, or auto-replace anything.
+
+(C) p2ashiura
+Released under the MIT License.
+https://github.com/p2ashiura/foo_component_update_checker
+```
+
+これまでの「Does not auto-download or auto-install anything.」という2文構成から、auto-replaceも含めた一文にまとめ、READMEの「Explicitly out of scope」の書きぶりとも表現を揃えた。
+
+### 動作確認結果
+
+ビルドして、キャッシュを無視した強制再取得でSourceForge/marc2k3のエントリが正しく読み込まれることを確認。TEMP Debugコマンドの削除、dllmainの説明文(空行込み)の表示も確認済み。
+
+### 次にやること
+
+- v1.2.0としてコミット・プッシュ(本体・registry両リポジトリ)
+- registryへのmarc2k3/sourceforge由来エントリの追加は完了。githubのエントリと合わせて件数を随時更新していく
+- 他のホスティングサイトへの対応は、引き続き優先度を見ながら検討

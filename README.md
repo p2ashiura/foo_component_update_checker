@@ -13,14 +13,19 @@ foobar2000 (64bit版) 用コンポーネント。導入済みのサードパー�
 
 ## Status / 現在の状態
 
-v1.1.0. GitHub, GitLab, and Codeberg Releases are supported as update
-sources. Support for additional sites (personal sites, SourceForge, etc.)
-may be added in the future (the registry's `source` field is designed with
-this in mind).
+v1.2.0. GitHub, GitLab, and Codeberg Releases are supported as update
+sources, along with two non-API sources: marc2k3.github.io (a
+site-specific parser for that well-known personal component page) and
+SourceForge (a generic RSS-feed-based parser that works for any
+SourceForge project). Support for further sites may be added in the
+future (the registry's `source` field is designed with this in mind).
 
-v1.1.0。GitHub・GitLab・CodebergのReleasesに対応。他のサイト(個人サイト、
-SourceForge等)への対応は将来追加する可能性がある(Registryの`source`
-フィールドは、この拡張を見込んだ設計になっている)。
+v1.2.0。GitHub・GitLab・CodebergのReleasesに加えて、APIを持たない2つの
+ソースにも対応した: marc2k3.github.io(有名なfoobar2000コンポーネント
+配布サイトに特化したパーサー)と、SourceForge(どのSourceForgeプロジェクトにも
+汎用的に使えるRSSフィードベースのパーサー)。さらなるサイトへの対応は将来
+追加する可能性がある(Registryの`source`フィールドは、この拡張を見込んだ
+設計になっている)。
 
 ## Features / 機能
 
@@ -30,8 +35,13 @@ SourceForge等)への対応は将来追加する可能性がある(Registryの`s
   foobar2000 SDK
 - Register a repository per component by pasting its URL in
   **Preferences → Tools → Component Update Checker → Manage
-  Repositories...** (GitHub, GitLab, and Codeberg are supported; the site
-  is detected automatically from the URL) — or rely on the shared
+  Repositories...** — the site is detected automatically from the URL.
+  Supported sites:
+  - GitHub, GitLab, Codeberg — Releases API, any repository
+  - marc2k3.github.io — site-specific page parser (this one site only)
+  - SourceForge — RSS feed, works for any project's files folder
+
+  or rely on the shared
   [known-components registry](#remote-registry--既知コンポーネントdb) for
   components that are already listed there
 - Fetch latest release info and compare versions (SemVer-aware, including
@@ -56,7 +66,11 @@ SourceForge等)への対応は将来追加する可能性がある(Registryの`s
 - foobar2000 SDK経由で導入済みコンポーネントを検出(DLL名・表示名・バージョン)
 - **Preferences → Tools → Component Update Checker → Manage
   Repositories...**で、リポジトリのURLを貼り付けるだけでコンポーネントごとに
-  登録できる(GitHub・GitLab・Codebergに対応。サイトはURLから自動判定される)。
+  登録できる(サイトはURLから自動判定される)。対応サイト:
+  - GitHub・GitLab・Codeberg — Releases API、任意のリポジトリに対応
+  - marc2k3.github.io — このサイト専用のページパーサー(このサイト限定)
+  - SourceForge — RSSフィードベース、どのプロジェクトのファイルフォルダにも対応
+
   もしくは、既に
   [共有の既知コンポーネントDB](#remote-registry--既知コンポーネントdb)に
   載っているコンポーネントなら、登録不要でそのまま確認できる
@@ -84,6 +98,11 @@ SourceForge等)への対応は将来追加する可能性がある(Registryの`s
 - Sending library contents, playback history, or playlists anywhere
 - Component identity is based on DLL name (not GUID); the foobar2000 SDK's
   `componentversion` interface does not expose a reliable per-component GUID
+- Site-specific page parsers (currently marc2k3.github.io) are inherently
+  fragile — if that site's page structure changes, checking fails with an
+  explicit error rather than a wrong result. SourceForge, by contrast, is
+  supported generically via its RSS feed and is not tied to any one
+  project
 
 **日本語**
 
@@ -93,6 +112,10 @@ SourceForge等)への対応は将来追加する可能性がある(Registryの`s
 - コンポーネントの識別はDLL名ベース(GUIDではない)。foobar2000 SDKの
   `componentversion`インターフェースからは、信頼できるコンポーネント単位の
   GUIDが取得できないため
+- サイト固有のページパーサー(現状marc2k3.github.io)は構造上壊れやすい —
+  対象サイトのページ構造が変わった場合、誤った結果を返すのではなく明示的な
+  エラーとして確認失敗を表示する。一方SourceForgeはRSSフィード経由の汎用対応
+  であり、特定のプロジェクトに依存しない
 
 ## Remote Registry / 既知コンポーネントDB
 
@@ -133,6 +156,9 @@ Specifically:
 - `api.github.com` — to check installed components' GitHub Releases
 - `gitlab.com` — to check installed components' GitLab Releases
 - `codeberg.org` — to check installed components' Codeberg Releases
+- `marc2k3.github.io` — to check installed components hosted on that site
+- `sourceforge.net` — to check installed components' SourceForge project
+  file feeds
 - `raw.githubusercontent.com` — to fetch the shared
   [known-components registry](#remote-registry--既知コンポーネントdb)
 
@@ -149,6 +175,10 @@ surprises.
 - `api.github.com` — 導入済みコンポーネントのGitHub Releasesを確認するため
 - `gitlab.com` — 導入済みコンポーネントのGitLab Releasesを確認するため
 - `codeberg.org` — 導入済みコンポーネントのCodeberg Releasesを確認するため
+- `marc2k3.github.io` — 導入済みコンポーネントのうち、当該サイトで配布されて
+  いるものを確認するため
+- `sourceforge.net` — 導入済みコンポーネントのSourceForgeプロジェクトの
+  ファイルフィードを確認するため
 - `raw.githubusercontent.com` — 共有の
   [既知コンポーネントDB](#remote-registry--既知コンポーネントdb)を取得するため
 
@@ -205,8 +235,12 @@ GitHub APIのレスポンス解析には[nlohmann/json](https://github.com/nlohm
    [shared registry](#remote-registry--既知コンポーネントdb) will be checked
    automatically, no registration needed.
 3. For anything not covered, click **Manage Repositories...** and paste the
-   component's repository URL (GitHub, GitLab, or Codeberg — e.g.
-   `https://github.com/owner/repo`) to associate it.
+   component's repository URL to associate it. Examples:
+   - `https://github.com/owner/repo`
+   - `https://gitlab.com/owner/repo`
+   - `https://codeberg.org/owner/repo`
+   - `https://marc2k3.github.io/component/xxx/`
+   - `https://sourceforge.net/projects/<project>/files/<folder>/`
 4. Adjust **Automatically check for updates**, **Check interval (days)**,
    and the notification level as needed.
 
@@ -217,8 +251,12 @@ GitHub APIのレスポンス解析には[nlohmann/json](https://github.com/nlohm
    [共有DB](#remote-registry--既知コンポーネントdb)に既に載っている
    コンポーネントは、登録不要でそのまま確認される
 3. カバーされていないコンポーネントは、**Manage Repositories...**から
-   リポジトリのURL(GitHub・GitLab・Codeberg。例: `https://github.com/owner/repo`)
-   を貼り付けて紐付ける
+   リポジトリのURLを貼り付けて紐付ける。例:
+   - `https://github.com/owner/repo`
+   - `https://gitlab.com/owner/repo`
+   - `https://codeberg.org/owner/repo`
+   - `https://marc2k3.github.io/component/xxx/`
+   - `https://sourceforge.net/projects/<project>/files/<folder>/`
 4. 必要に応じて**Automatically check for updates**・**Check interval
    (days)**・通知レベルを調整する
 

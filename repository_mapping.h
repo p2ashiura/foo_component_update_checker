@@ -13,10 +13,14 @@
 
 struct RepositoryMappingEntry {
     std::string dllName;  // 拡張子(.dll)の有無は問わない。比較時に正規化する。
-    std::string source;   // "github" / "gitlab" / "codeberg"。未設定時は"github"扱い
-                           // (既存保存データとの後方互換のため)。
-    std::string owner;    // ユーザー名 or Organization名
-    std::string repo;     // リポジトリ名
+    std::string source;   // "github" / "gitlab" / "codeberg" / "marc2k3" / "sourceforge"。
+                           // 未設定時は"github"扱い(既存保存データとの後方互換のため)。
+    std::string owner;    // owner/repoモデル(github/gitlab/codeberg)用。
+                           // marc2k3では未使用(空文字)。
+    std::string repo;     // owner/repoモデル(github/gitlab/codeberg)用。
+                           // marc2k3では未使用(空文字)。
+    std::string url;      // urlモデル(marc2k3)用。コンポーネント個別ページのURLを
+                           // そのまま保持する。github/gitlab/codebergでは未使用(空文字)。
 };
 
 // 保存されている全エントリを読み込む。

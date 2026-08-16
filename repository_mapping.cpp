@@ -36,6 +36,20 @@ std::string normalizeDllName(std::string s) {
     return toLowerCopy(stripDllExtension(s));
 }
 
+// sourceに応じて必須フィールドが異なる(owner/repoモデル vs urlモデル)ため、
+// ここで出し分ける。DP-0009: 中途半端なエントリは誤判定の元になるので、
+// 必須フィールドが欠けているものは読み込まずに捨てる。
+bool isValidEntry(RepositoryMappingEntry const& entry) {
+    if (entry.dllName.empty()) return false;
+
+    if (entry.source == "marc2k3" || entry.source == "sourceforge") {
+        return !entry.url.empty();
+    }
+
+    // github / gitlab / codeberg(および後方互換の未設定時)は owner/repo モデル
+    return !entry.owner.empty() && !entry.repo.empty();
+}
+
 } // namespace
 
 std::vector<RepositoryMappingEntry> loadRepositoryMapping() {
@@ -55,8 +69,9 @@ std::vector<RepositoryMappingEntry> loadRepositoryMapping() {
             entry.source = item.value("source", "github");
             entry.owner = item.value("owner", "");
             entry.repo = item.value("repo", "");
+            entry.url = item.value("url", "");
 
-            if (!entry.dllName.empty() && !entry.owner.empty() && !entry.repo.empty()) {
+            if (isValidEntry(entry)) {
                 result.push_back(std::move(entry));
             }
         }
@@ -78,6 +93,7 @@ void saveRepositoryMapping(std::vector<RepositoryMappingEntry> const& entries) {
         item["source"] = e.source.empty() ? "github" : e.source;
         item["owner"] = e.owner;
         item["repo"] = e.repo;
+        item["url"] = e.url;
         arr.push_back(std::move(item));
     }
 

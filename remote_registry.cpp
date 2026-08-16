@@ -75,7 +75,7 @@ void tryRefreshCache(abort_callback& abort, RemoteRegistryFetchStatus* outStatus
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.1.0");
+        request->add_header("User-Agent", "foo_component_update_checker/1.2.0");
 
         file::ptr response = request->run(k_remoteRegistryUrl.c_str(), abort);
 
@@ -129,6 +129,7 @@ std::vector<RemoteRegistryEntry> GetRemoteRegistryEntries(abort_callback& abort,
             entry.source = item.value("source", "");
             entry.owner = item.value("owner", "");
             entry.repo = item.value("repo", "");
+            entry.url = item.value("url", "");
 
             if (!entry.dllName.empty() && !entry.source.empty()) {
                 result.push_back(std::move(entry));
@@ -156,9 +157,10 @@ bool findRemoteRegistryEntry(
     std::string target = normalizeDllName(dllName);
 
     for (auto const& e : entries) {
-        // 対応済みのsourceのみ利用可能とみなす。未対応のsource(将来追加予定の
-        // サイトが登録された場合等)は静かにスキップする(Fail Open)。
-        if (e.source != "github" && e.source != "gitlab" && e.source != "codeberg") continue;
+        // 対応済みのsource("github"/"gitlab"/"codeberg"/"marc2k3"/"sourceforge")
+        // のみ利用可能とみなす。未対応のsource(将来追加予定のサイトが登録された
+        // 場合等)は静かにスキップする(Fail Open)。
+        if (e.source != "github" && e.source != "gitlab" && e.source != "codeberg" && e.source != "marc2k3" && e.source != "sourceforge") continue;
         if (normalizeDllName(e.dllName) == target) {
             out = e;
             return true;

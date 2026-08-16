@@ -2,9 +2,12 @@
 
 DECLARE_COMPONENT_VERSION(
     "Component Update Checker",
-    "1.1.0",
-    "Checks for updates to installed foobar2000 components.\n"
-    "Does not auto-download or auto-install anything."
+    "1.2.0",
+    "Checks installed third-party foobar2000 components for available updates and notifies you when one is found — it does not auto-download, auto-install, or auto-replace anything.\n"
+    "\n"
+    "(C) p2ashiura\n"
+    "Released under the MIT License.\n"
+    "https://github.com/p2ashiura/foo_component_update_checker"
 );
 
 // foobar2000本体との連携に必要なvalidate_build_level_bindableのため。

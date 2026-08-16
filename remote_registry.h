@@ -16,7 +16,8 @@
 //   確認処理自体は止めない(Fail Open)
 //
 // "source"フィールドは将来GitHub以外(GitLab、個人サイト等)にも対応できるよう
-// 持たせてある。現時点では "github" のみ実際に使用する。
+// 持たせてある。現時点では "github" / "gitlab" / "codeberg" / "marc2k3" /
+// "sourceforge" に対応。
 
 // Registryリポジトリの場所。移行時はここだけ書き換えればよい。
 // remote_registry.cpp(取得元URLの組み立て)と、登録ダイアログのPR誘導ボタン
@@ -27,9 +28,10 @@ inline const char* const k_registryFilePath = "known_components.json";
 
 struct RemoteRegistryEntry {
     std::string dllName;
-    std::string source; // 現時点では "github" のみ対応
-    std::string owner;
-    std::string repo;
+    std::string source; // "github" / "gitlab" / "codeberg" / "marc2k3" / "sourceforge"
+    std::string owner;  // owner/repoモデル用。marc2k3では未使用(空文字)
+    std::string repo;   // owner/repoモデル用。marc2k3では未使用(空文字)
+    std::string url;    // urlモデル(marc2k3)用。他sourceでは未使用(空文字)
 };
 
 // GetRemoteRegistryEntries()呼び出し時に、実際に取得を試みたか・成功したかを
@@ -48,7 +50,8 @@ struct RemoteRegistryFetchStatus {
 std::vector<RemoteRegistryEntry> GetRemoteRegistryEntries(abort_callback& abort, RemoteRegistryFetchStatus* outStatus = nullptr);
 
 // dllNameで検索する(拡張子の有無・大文字小文字は無視)。
-// source == "github" のエントリのみ現時点では利用可能とみなす。
+// 対応済みのsource("github"/"gitlab"/"codeberg"/"marc2k3"/"sourceforge")の
+// エントリのみ現時点では利用可能とみなす。
 bool findRemoteRegistryEntry(
     std::vector<RemoteRegistryEntry> const& entries,
     std::string const& dllName,

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <sstream>
+#include <regex>
 
 // ------------------------------------------------------------------
 // Phase 1: 更新確認のコアロジック(手動確認・自動確認で共用)
@@ -198,6 +199,10 @@ UpdateStatus compareVersions(std::string const& installedRaw, std::string const&
 // 注意: GitLab/CodebergのAPI仕様は、GitHub(実機で動作検証済み)ほど検証が
 // できていない。エンドポイントの詳細(特にCodebergの/latestの有無、GitLabの
 // permalink/latestの挙動)は実際にビルドして動作確認しながら調整すること。
+//
+// marc2k3(HTML直書き配布)は正式なAPIが無いサイト固有のパーサーであり、
+// ページの構造(Zensicalテーマ)が変わると壊れる前提。DP-0009に従い、
+// 想定した構造が見つからない場合は誤判定せず必ずエラーを返す。
 // ------------------------------------------------------------------
 
 struct FetchedRelease {
@@ -217,7 +222,7 @@ bool FetchGitHubLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.1.0");
+        request->add_header("User-Agent", "foo_component_update_checker/1.2.0");
         request->add_header("Accept", "application/vnd.github+json");
 
         file::ptr response = request->run(url, abort);
@@ -251,7 +256,7 @@ bool FetchGitLabLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.1.0");
+        request->add_header("User-Agent", "foo_component_update_checker/1.2.0");
 
         file::ptr response = request->run(url, abort);
         response->read_string_raw(body, abort);
@@ -290,7 +295,7 @@ bool FetchCodebergLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.1.0");
+        request->add_header("User-Agent", "foo_component_update_checker/1.2.0");
 
         file::ptr response = request->run(url, abort);
         response->read_string_raw(body, abort);
@@ -315,6 +320,138 @@ bool FetchCodebergLatestRelease(
         errorMessage = std::string("Invalid response: ") + e.what();
         return false;
     }
+}
+
+bool FetchMarc2k3LatestRelease(
+    std::string const& pageUrl, abort_callback& abort,
+    FetchedRelease& out, std::string& errorMessage
+) {
+    pfc::string8 body;
+
+    try {
+        http_client::ptr client = http_client::get();
+        http_request::ptr request = client->create_request("GET");
+        request->add_header("User-Agent", "foo_component_update_checker/1.2.0");
+
+        file::ptr response = request->run(pfc::string8(pageUrl.c_str()), abort);
+        response->read_string_raw(body, abort);
+    } catch (std::exception const& e) {
+        errorMessage = std::string("Network/API error: ") + e.what();
+        return false;
+    }
+
+    std::string html = body.c_str();
+
+    // marc2k3サイト(Zensicalテーマ)のDownloadボタンを特定する。実例:
+    //   <a class="md-button md-button--primary" href="../../files/foo_cover_utils-1.7.fb2k-component">
+    // href は "../../files/..." のような相対パスのままで、絶対URL化する必要はない
+    // (末尾のファイル名からバージョンさえ取れればよく、releaseUrlは登録ページURLを
+    //  そのまま使うため)。
+    // 注意: このパターンは "([^"]+)" のように )" という並びを含むため、
+    // 既定の区切り子 R"( ... )" だと生文字列リテラルが途中で終端してしまう。
+    // カスタム区切り子 R"RX( ... )RX" を使って衝突を避ける。
+    static const std::regex downloadButtonPattern(
+        R"RX(class="md-button md-button--primary"\s+href="([^"]+)")RX"
+    );
+
+    std::smatch m;
+    if (!std::regex_search(html, m, downloadButtonPattern)) {
+        errorMessage = "Unable to locate the download button on this page (page structure may have changed).";
+        return false;
+    }
+
+    std::string href = m[1].str();
+
+    // ファイル名末尾の "-<version>.fb2k-component" からバージョンを抜き出す。
+    static const std::regex versionPattern(
+        R"(-([0-9]+(?:\.[0-9]+)*)\.fb2k-component$)"
+    );
+
+    std::smatch vm;
+    if (!std::regex_search(href, vm, versionPattern)) {
+        errorMessage = "Download link found, but its filename didn't match the expected version pattern.";
+        return false;
+    }
+
+    out.tagName = vm[1].str();  // 例: "1.7"
+    out.releaseUrl = pageUrl;   // 専用のリリースページが無いため、登録ページURLをそのまま使う
+    return true;
+}
+
+// SourceForgeは正式なReleases APIを持たないが、プラットフォーム共通機能として
+// 各プロジェクトのファイル配布用RSSフィード(/projects/{project}/rss?path={path})
+// を持っている。これはmarc2k3と違いSourceForge全プロジェクトに共通する構造なので、
+// プロジェクトごとの特別対応なしに汎用的に扱える。
+//
+// 登録は「フォルダのファイル一覧ページURL」で行う(例:
+// https://sourceforge.net/projects/sacddecoder/files/foo_input_sacd/)。
+// フェッチ時にそこからプロジェクト名とフォルダパスを抜き出し、RSS URLを組み立てる。
+bool FetchSourceForgeLatestRelease(
+    std::string const& folderUrl, abort_callback& abort,
+    FetchedRelease& out, std::string& errorMessage
+) {
+    static const std::regex folderUrlPattern(
+        R"RX(sourceforge\.net/projects/([^/]+)/files(/[^?#]*)?)RX"
+    );
+
+    std::smatch fm;
+    if (!std::regex_search(folderUrl, fm, folderUrlPattern)) {
+        errorMessage = "Invalid SourceForge URL: expected a project files page, e.g. https://sourceforge.net/projects/<project>/files/<folder>/";
+        return false;
+    }
+
+    std::string project = fm[1].str();
+    std::string path = fm[2].matched ? fm[2].str() : "";
+    // RSSのpathパラメータは末尾スラッシュ無しの形式を使う。空ならルート("/")扱い。
+    if (!path.empty() && path.back() == '/') path.pop_back();
+    if (path.empty()) path = "/";
+
+    std::string rssUrl = "https://sourceforge.net/projects/" + project + "/rss?path=" + path;
+
+    pfc::string8 body;
+    try {
+        http_client::ptr client = http_client::get();
+        http_request::ptr request = client->create_request("GET");
+        request->add_header("User-Agent", "foo_component_update_checker/1.2.0");
+
+        file::ptr response = request->run(pfc::string8(rssUrl.c_str()), abort);
+        response->read_string_raw(body, abort);
+    } catch (std::exception const& e) {
+        errorMessage = std::string("Network/API error: ") + e.what();
+        return false;
+    }
+
+    std::string xml = body.c_str();
+
+    // <item><title><![CDATA[/folder/filename]]></title>...</item> という並びを
+    // 日付が新しい順(SourceForgeのRSSはアップロード順)に走査し、バージョン番号+
+    // アーカイブ拡張子という形に厳密にマッチする最初のファイルを採用する。
+    // これにより readme.txt 等の非パッケージファイルや、"-1.6.x.zip" のような
+    // 互換ビルド用サフィックス付きファイル(数字だけで終わらない)は自然に
+    // スキップされ、実質「最新の正式リリース」だけが拾われる(DP-0009)。
+    static const std::regex itemTitlePattern(
+        R"RX(<title><!\[CDATA\[([^\]]+)\]\]></title>)RX"
+    );
+    static const std::regex fileVersionPattern(
+        R"RX(-([0-9]+(?:\.[0-9]+)*)\.(?:zip|rar|7z|fb2k-component)$)RX",
+        std::regex::icase
+    );
+
+    auto begin = std::sregex_iterator(xml.begin(), xml.end(), itemTitlePattern);
+    auto end = std::sregex_iterator();
+
+    for (auto it = begin; it != end; ++it) {
+        std::string title = (*it)[1].str();
+        std::smatch vm;
+        if (std::regex_search(title, vm, fileVersionPattern)) {
+            out.tagName = vm[1].str();
+            out.releaseUrl = folderUrl; // RSS URLではなく、人が見られるフォルダページを使う
+            return true;
+        }
+    }
+
+    errorMessage = "No release archive with a recognizable version number was found in this SourceForge folder's feed.";
+    return false;
 }
 
 } // namespace
@@ -380,6 +517,7 @@ std::vector<CheckResult> RunUpdateCheck(
                 mapping.source = remote.source;
                 mapping.owner = remote.owner;
                 mapping.repo = remote.repo;
+                mapping.url = remote.url;
                 found = true;
             }
         }
@@ -399,6 +537,10 @@ std::vector<CheckResult> RunUpdateCheck(
             fetchOk = FetchGitLabLatestRelease(mapping.owner, mapping.repo, abort, release, errorMessage);
         } else if (mapping.source == "codeberg") {
             fetchOk = FetchCodebergLatestRelease(mapping.owner, mapping.repo, abort, release, errorMessage);
+        } else if (mapping.source == "marc2k3") {
+            fetchOk = FetchMarc2k3LatestRelease(mapping.url, abort, release, errorMessage);
+        } else if (mapping.source == "sourceforge") {
+            fetchOk = FetchSourceForgeLatestRelease(mapping.url, abort, release, errorMessage);
         } else {
             // "github"、または未設定(後方互換)の場合はGitHubとして扱う。
             fetchOk = FetchGitHubLatestRelease(mapping.owner, mapping.repo, abort, release, errorMessage);
