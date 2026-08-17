@@ -116,7 +116,7 @@ void RefreshEntryListBox(HWND hDlg) {
     auto entries = loadRepositoryMapping();
     for (auto const& e : entries) {
         pfc::string8 line;
-        if (e.source == "marc2k3" || e.source == "sourceforge") {
+        if (e.source == "marc2k3" || e.source == "sourceforge" || e.source == "hyv") {
             // urlモデル: owner/repoが空なので、代わりに登録ページURLを表示する。
             line << e.dllName.c_str() << "  ->  " << e.url.c_str();
         } else {
@@ -221,6 +221,28 @@ bool TryParseRepositoryUrl(
         if (normalized.back() != '/') normalized += "/";
 
         outSource = "sourceforge";
+        outOwner = "";
+        outRepo = "";
+        outUrl = normalized;
+        return true;
+    }
+
+    // foobar.hyv.fi: marc2k3と同様、このサイト専用のurlモデル(Case氏の
+    // 個人配布サイト)。ただしクエリパラメータ(?view=<component>)自体が
+    // コンポーネントの識別子なので、marc2k3/sourceforgeと違いクエリ文字列は
+    // 切り落とさず残す(フラグメントのみ切り落とす)。
+    if (url.find("foobar.hyv.fi/") != std::string::npos) {
+        std::string normalized = url;
+
+        size_t fragPos = normalized.find('#');
+        if (fragPos != std::string::npos) normalized = normalized.substr(0, fragPos);
+
+        if (normalized.compare(0, 8, "https://") != 0 &&
+            normalized.compare(0, 7, "http://") != 0) {
+            normalized = "https://" + normalized;
+        }
+
+        outSource = "hyv";
         outOwner = "";
         outRepo = "";
         outUrl = normalized;
@@ -456,7 +478,8 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
                     _T("https://gitlab.com/owner/repo\n")
                     _T("https://codeberg.org/owner/repo\n")
                     _T("https://marc2k3.github.io/component/xxx/\n")
-                    _T("https://sourceforge.net/projects/<project>/files/<folder>/"),
+                    _T("https://sourceforge.net/projects/<project>/files/<folder>/\n")
+                    _T("https://foobar.hyv.fi/?view=<component>"),
                     _T("Repository Mapping"), MB_OK | MB_ICONWARNING);
                 return TRUE;
             }
@@ -511,7 +534,8 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
                     _T("https://gitlab.com/owner/repo\n")
                     _T("https://codeberg.org/owner/repo\n")
                     _T("https://marc2k3.github.io/component/xxx/\n")
-                    _T("https://sourceforge.net/projects/<project>/files/<folder>/"),
+                    _T("https://sourceforge.net/projects/<project>/files/<folder>/\n")
+                    _T("https://foobar.hyv.fi/?view=<component>"),
                     _T("Suggest for Shared Registry"), MB_OK | MB_ICONWARNING);
                 return TRUE;
             }
@@ -523,7 +547,7 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             snippet += "    {\n";
             snippet += "      \"dll\": \"" + std::string(dllNameBuf) + "\",\n";
             snippet += "      \"source\": \"" + source + "\",\n";
-            if (source == "marc2k3" || source == "sourceforge") {
+            if (source == "marc2k3" || source == "sourceforge" || source == "hyv") {
                 snippet += "      \"url\": \"" + url + "\"\n";
             } else {
                 snippet += "      \"owner\": \"" + owner + "\",\n";

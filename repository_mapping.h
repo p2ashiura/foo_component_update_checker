@@ -13,7 +13,7 @@
 
 struct RepositoryMappingEntry {
     std::string dllName;  // 拡張子(.dll)の有無は問わない。比較時に正規化する。
-    std::string source;   // "github" / "gitlab" / "codeberg" / "marc2k3" / "sourceforge"。
+    std::string source;   // "github" / "gitlab" / "codeberg" / "marc2k3" / "sourceforge" / "hyv"。
                            // 未設定時は"github"扱い(既存保存データとの後方互換のため)。
     std::string owner;    // owner/repoモデル(github/gitlab/codeberg)用。
                            // marc2k3では未使用(空文字)。

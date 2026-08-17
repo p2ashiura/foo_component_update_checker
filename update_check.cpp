@@ -222,7 +222,7 @@ bool FetchGitHubLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.2.0");
+        request->add_header("User-Agent", "foo_component_update_checker/1.3.0");
         request->add_header("Accept", "application/vnd.github+json");
 
         file::ptr response = request->run(url, abort);
@@ -256,7 +256,7 @@ bool FetchGitLabLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.2.0");
+        request->add_header("User-Agent", "foo_component_update_checker/1.3.0");
 
         file::ptr response = request->run(url, abort);
         response->read_string_raw(body, abort);
@@ -295,7 +295,7 @@ bool FetchCodebergLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.2.0");
+        request->add_header("User-Agent", "foo_component_update_checker/1.3.0");
 
         file::ptr response = request->run(url, abort);
         response->read_string_raw(body, abort);
@@ -331,7 +331,7 @@ bool FetchMarc2k3LatestRelease(
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.2.0");
+        request->add_header("User-Agent", "foo_component_update_checker/1.3.0");
 
         file::ptr response = request->run(pfc::string8(pageUrl.c_str()), abort);
         response->read_string_raw(body, abort);
@@ -412,7 +412,7 @@ bool FetchSourceForgeLatestRelease(
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.2.0");
+        request->add_header("User-Agent", "foo_component_update_checker/1.3.0");
 
         file::ptr response = request->run(pfc::string8(rssUrl.c_str()), abort);
         response->read_string_raw(body, abort);
@@ -452,6 +452,51 @@ bool FetchSourceForgeLatestRelease(
 
     errorMessage = "No release archive with a recognizable version number was found in this SourceForge folder's feed.";
     return false;
+}
+
+// foobar.hyv.fi(Case氏の個人配布サイト)は、marc2k3と同じくこのサイト専用の
+// パーサー。ただし構造がmarc2k3と異なり、ダウンロードリンクのファイル名には
+// バージョンが含まれていない(例: foo_hdcd.fb2k-component)。代わりにページ内の
+// 情報テーブルに "Version:" の行が明示的にあるので、そちらから直接読み取る。
+// サイト全体で同一テンプレートが使われていることを実サイト2件
+// (foo_hdcd, foo_out_digital)で確認済み。
+bool FetchHyvLatestRelease(
+    std::string const& pageUrl, abort_callback& abort,
+    FetchedRelease& out, std::string& errorMessage
+) {
+    pfc::string8 body;
+
+    try {
+        http_client::ptr client = http_client::get();
+        http_request::ptr request = client->create_request("GET");
+        request->add_header("User-Agent", "foo_component_update_checker/1.3.0");
+
+        file::ptr response = request->run(pfc::string8(pageUrl.c_str()), abort);
+        response->read_string_raw(body, abort);
+    } catch (std::exception const& e) {
+        errorMessage = std::string("Network/API error: ") + e.what();
+        return false;
+    }
+
+    std::string html = body.c_str();
+
+    // 実例: <tr><td>Version:</td><td>1.22</td></tr>
+    // "Changes" テーブル側にも "1.22 (2025-09-08):" のような紛らわしい文字列が
+    // あるが、リテラル "Version:" は情報テーブル側にしか出現しないため、
+    // このパターンで確実に区別できる。
+    static const std::regex versionRowPattern(
+        R"RX(<tr><td>Version:</td><td>([^<]+)</td></tr>)RX"
+    );
+
+    std::smatch vm;
+    if (!std::regex_search(html, vm, versionRowPattern)) {
+        errorMessage = "Unable to locate the Version field on this page (page structure may have changed).";
+        return false;
+    }
+
+    out.tagName = vm[1].str();
+    out.releaseUrl = pageUrl; // 専用のリリースページが無いため、登録ページURLをそのまま使う
+    return true;
 }
 
 } // namespace
@@ -541,6 +586,8 @@ std::vector<CheckResult> RunUpdateCheck(
             fetchOk = FetchMarc2k3LatestRelease(mapping.url, abort, release, errorMessage);
         } else if (mapping.source == "sourceforge") {
             fetchOk = FetchSourceForgeLatestRelease(mapping.url, abort, release, errorMessage);
+        } else if (mapping.source == "hyv") {
+            fetchOk = FetchHyvLatestRelease(mapping.url, abort, release, errorMessage);
         } else {
             // "github"、または未設定(後方互換)の場合はGitHubとして扱う。
             fetchOk = FetchGitHubLatestRelease(mapping.owner, mapping.repo, abort, release, errorMessage);

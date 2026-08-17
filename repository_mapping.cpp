@@ -42,7 +42,7 @@ std::string normalizeDllName(std::string s) {
 bool isValidEntry(RepositoryMappingEntry const& entry) {
     if (entry.dllName.empty()) return false;
 
-    if (entry.source == "marc2k3" || entry.source == "sourceforge") {
+    if (entry.source == "marc2k3" || entry.source == "sourceforge" || entry.source == "hyv") {
         return !entry.url.empty();
     }
 
