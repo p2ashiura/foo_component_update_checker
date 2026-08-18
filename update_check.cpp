@@ -222,7 +222,7 @@ bool FetchGitHubLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.3.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.0.0");
         request->add_header("Accept", "application/vnd.github+json");
 
         file::ptr response = request->run(url, abort);
@@ -256,7 +256,7 @@ bool FetchGitLabLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.3.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.0.0");
 
         file::ptr response = request->run(url, abort);
         response->read_string_raw(body, abort);
@@ -295,7 +295,7 @@ bool FetchCodebergLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.3.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.0.0");
 
         file::ptr response = request->run(url, abort);
         response->read_string_raw(body, abort);
@@ -331,7 +331,7 @@ bool FetchMarc2k3LatestRelease(
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.3.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.0.0");
 
         file::ptr response = request->run(pfc::string8(pageUrl.c_str()), abort);
         response->read_string_raw(body, abort);
@@ -412,7 +412,7 @@ bool FetchSourceForgeLatestRelease(
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.3.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.0.0");
 
         file::ptr response = request->run(pfc::string8(rssUrl.c_str()), abort);
         response->read_string_raw(body, abort);
@@ -469,7 +469,7 @@ bool FetchHyvLatestRelease(
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/1.3.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.0.0");
 
         file::ptr response = request->run(pfc::string8(pageUrl.c_str()), abort);
         response->read_string_raw(body, abort);

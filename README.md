@@ -1,11 +1,11 @@
 # foo_component_update_checker
 
-foobar2000 (64-bit) component that checks installed third-party components
+foobar2000 component that checks installed third-party components
 for available updates and notifies the user. It does not auto-download,
 auto-install, or auto-replace anything — it only tells you an update exists
 and takes you to the release page.
 
-foobar2000 (64bit版) 用コンポーネント。導入済みのサードパーティー製コンポーネントについて、
+foobar2000用コンポーネント。導入済みのサードパーティー製コンポーネントについて、
 更新の有無をインターネット上で確認し、ユーザーへ通知する。DLLの自動ダウンロード・
 自動インストール・自動置換は行わない。更新の存在を知らせ、公開ページへ案内するところまでを担当する。
 
@@ -13,19 +13,11 @@ foobar2000 (64bit版) 用コンポーネント。導入済みのサードパー�
 
 ## Status / 現在の状態
 
-v1.3.0. GitHub, GitLab, and Codeberg Releases are supported as update
-sources, along with three non-API sources: marc2k3.github.io and
-foobar.hyv.fi (site-specific parsers for those personal component pages)
-and SourceForge (a generic RSS-feed-based parser that works for any
-SourceForge project). Support for further sites may be added in the
-future (the registry's `source` field is designed with this in mind).
+v2.0.0. Now builds and runs as either a 32-bit or 64-bit component
+(previously 64-bit only).
 
-v1.3.0。GitHub・GitLab・CodebergのReleasesに加えて、APIを持たない3つの
-ソースにも対応した: marc2k3.github.ioとfoobar.hyv.fi(それぞれの個人配布
-サイトに特化したパーサー)、SourceForge(どのSourceForgeプロジェクトにも
-汎用的に使えるRSSフィードベースのパーサー)。さらなるサイトへの対応は将来
-追加する可能性がある(Registryの`source`フィールドは、この拡張を見込んだ
-設計になっている)。
+v2.0.0。32bit・64bitどちらの環境でもビルド・動作するようになった
+(これまでは64bit版のみ)。
 
 ## Features / 機能
 
@@ -193,7 +185,7 @@ surprises.
 
 ## Requirements / 動作環境
 
-- foobar2000 v2.x, 64-bit
+- foobar2000 v2.x, 32-bit or 64-bit
 - Windows 10/11
 
 ## Building / ビルド方法
@@ -206,6 +198,8 @@ surprises.
    These are not committed to this repository — obtain them separately.
 3. Open `foo_component_update_checker.slnx` in Visual Studio 2022 and build
    the `Release|x64` configuration (or `Debug|x64` for development).
+   `Release|Win32` / `Debug|Win32` are also supported, for building a
+   32-bit version of the component.
 
 The solution builds the SDK helper libraries (`pfc`, `foobar2000_SDK`,
 `foobar2000_component_client`, `shared`, `columns_ui_sdk`) as build
@@ -223,6 +217,7 @@ GitHub API responses.
    これらはリポジトリにはコミットしていないため、別途入手すること。
 3. Visual Studio 2022で`foo_component_update_checker.slnx`を開き、
    `Release|x64`構成でビルドする(開発時は`Debug|x64`)。
+   32bit版をビルドする場合は`Release|Win32`/`Debug|Win32`にも対応している。
 
 ソリューションは、本体をリンクする前にSDK側のヘルパーライブラリ
 (`pfc`, `foobar2000_SDK`, `foobar2000_component_client`, `shared`, `columns_ui_sdk`)
