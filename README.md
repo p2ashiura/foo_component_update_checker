@@ -13,11 +13,15 @@ foobar2000用コンポーネント。導入済みのサードパーティー製�
 
 ## Status / 現在の状態
 
-v2.0.0. Now builds and runs as either a 32-bit or 64-bit component
-(previously 64-bit only).
+v2.0.1. Now builds and runs as either a 32-bit or 64-bit component
+(previously 64-bit only). Also cleaned up in-app wording ("Repository
+URL" → "Page URL", "Manage Repositories..." → "Manage Sources...") to
+better reflect that not every supported site is a code repository.
 
-v2.0.0。32bit・64bitどちらの環境でもビルド・動作するようになった
-(これまでは64bit版のみ)。
+v2.0.1。32bit・64bitどちらの環境でもビルド・動作するようになった
+(これまでは64bit版のみ)。あわせて、アプリ内の表記("Repository URL" →
+"Page URL"、"Manage Repositories..." → "Manage Sources...")も、対応サイトが
+必ずしもコードリポジトリとは限らない今の実態に合わせて整理した。
 
 ## Features / 機能
 
@@ -25,9 +29,9 @@ v2.0.0。32bit・64bitどちらの環境でもビルド・動作するように�
 
 - Detect installed components (DLL name, display name, version) via the
   foobar2000 SDK
-- Register a repository per component by pasting its URL in
+- Register a component's page URL in
   **Preferences → Tools → Component Update Checker → Manage
-  Repositories...** — the site is detected automatically from the URL.
+  Sources...** — the site is detected automatically from the URL.
   Supported sites:
   - GitHub, GitLab, Codeberg — Releases API, any repository
   - marc2k3.github.io — site-specific page parser (this one site only)
@@ -58,7 +62,7 @@ v2.0.0。32bit・64bitどちらの環境でもビルド・動作するように�
 
 - foobar2000 SDK経由で導入済みコンポーネントを検出(DLL名・表示名・バージョン)
 - **Preferences → Tools → Component Update Checker → Manage
-  Repositories...**で、リポジトリのURLを貼り付けるだけでコンポーネントごとに
+  Sources...**で、公開ページのURLを貼り付けるだけでコンポーネントごとに
   登録できる(サイトはURLから自動判定される)。対応サイト:
   - GitHub・GitLab・Codeberg — Releases API、任意のリポジトリに対応
   - marc2k3.github.io — このサイト専用のページパーサー(このサイト限定)
@@ -119,7 +123,7 @@ Components not registered locally are looked up in a shared, static JSON
 file maintained at
 [foo_component_update_checker-registry](https://github.com/p2ashiura/foo_component_update_checker-registry)
 (fetched anonymously from `raw.githubusercontent.com`, no API key or server
-involved). Locally registered repositories (via **Manage Repositories...**)
+involved). Locally registered sources (via **Manage Sources...**)
 always take priority over this shared registry. The cache refreshes at most
 once every 24 hours; failures fall back silently to the last known-good
 cache.
@@ -133,7 +137,7 @@ inside the component.
 ローカルに登録されていないコンポーネントは、
 [foo_component_update_checker-registry](https://github.com/p2ashiura/foo_component_update_checker-registry)
 で管理されている共有の静的JSONファイルを参照する(`raw.githubusercontent.com`から
-匿名取得。APIキーやサーバーは不要)。**Manage Repositories...**でローカルに
+匿名取得。APIキーやサーバーは不要)。**Manage Sources...**でローカルに
 登録した内容は、常にこの共有DBより優先される。キャッシュは最大24時間に1回まで
 更新を試み、失敗時は直近の取得済みキャッシュへ静かにフォールバックする。
 
@@ -234,8 +238,8 @@ GitHub APIのレスポンス解析には[nlohmann/json](https://github.com/nlohm
 2. Click **Check for Updates Now** — components already listed in the
    [shared registry](#remote-registry--既知コンポーネントdb) will be checked
    automatically, no registration needed.
-3. For anything not covered, click **Manage Repositories...** and paste the
-   component's repository URL to associate it. Examples:
+3. For anything not covered, click **Manage Sources...** and paste the
+   component's page URL to associate it. Examples:
    - `https://github.com/owner/repo`
    - `https://gitlab.com/owner/repo`
    - `https://codeberg.org/owner/repo`
@@ -251,8 +255,8 @@ GitHub APIのレスポンス解析には[nlohmann/json](https://github.com/nlohm
 2. **Check for Updates Now**をクリックする —
    [共有DB](#remote-registry--既知コンポーネントdb)に既に載っている
    コンポーネントは、登録不要でそのまま確認される
-3. カバーされていないコンポーネントは、**Manage Repositories...**から
-   リポジトリのURLを貼り付けて紐付ける。例:
+3. カバーされていないコンポーネントは、**Manage Sources...**から
+   公開ページのURLを貼り付けて紐付ける。例:
    - `https://github.com/owner/repo`
    - `https://gitlab.com/owner/repo`
    - `https://codeberg.org/owner/repo`

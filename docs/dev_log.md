@@ -1249,3 +1249,44 @@ foo_component_update_checker.fb2k-component
 
 - v2.0.0としてコミット・プッシュ(本体リポジトリ)
 - Reddit投稿の準備
+
+---
+
+## 2026-08-17(続き4) v2.0.0のReddit告知・UI表記の整理(v2.0.1)
+
+### Reddit告知
+
+v2.0.0(32bit対応)のコミット・プッシュ後、これまでと同じ体裁でReddit投稿文を作成した。今回は特定のユーザー要望から生まれた機能ではなく、「32bit環境のユーザーやコンポーネントがまだ一定数残っている」という認識から着手したものである旨を明記した。
+
+### UI表記の整理: 「Repository」という言葉が実態と合わなくなっていた
+
+対応サイトが6種類(GitHub/GitLab/Codeberg=owner/repoモデル、marc2k3/SourceForge/hyv=urlモデル)まで増えたことで、UI・README上の「Repository」という言葉が実態と合わなくなってきているのではという指摘があった。実際に洗い出すと、確かにmarc2k3/hyvは「コンポーネント個別のページ」、SourceForgeは「ファイル一覧のフォルダ」であり、「リポジトリ」と呼ぶには無理があった。
+
+「ダウンロードページ」という案も検討したが、GitHub/GitLab/Codebergで実際に貼るのはリポジトリのルートURL(ダウンロードページそのものではない)、SourceForgeもファイル一覧フォルダであり、これも完全には当てはまらないと判断。最終的に**「Page URL」/「公開ページのURL」**という、6サイト全てに共通して当てはまる表現に統一した。
+
+### 変更範囲の切り分け: UI文字列のみ、内部識別子は変更しない
+
+`RepositoryMappingEntry`、`repository_mapping.h`、`ShowRepositoryMappingDialog`等の内部C++識別子は、今回変更しないと決めた。理由:
+
+- ユーザーには一切見えない、開発者だけが見る名前
+- ファイル名・構造体名・関数名の変更は、`marc2k3`/`sourceforge`/`hyv`追加のたびに踏んできた「1箇所への追加漏れ」バグと同種のリスクを、プロジェクト全体に対して一度に負うことになる
+- 内部の実装名とUI上の表示名が完全一致している必要は無い(実務でもよくあること)
+
+この切り分けにより、変更はユーザーに見える文字列のみに限定できた。
+
+### 実装
+
+- `repository_mapping_ui.cpp`: ダイアログタイトル`Repository Mapping`→`Manage Component Sources`(文字数増加に伴い`title[24]`→`title[32]`に配列サイズも拡張)、入力欄ラベル`Repository URL:`→`Page URL:`、エラーメッセージ4箇所
+- `preferences_page.cpp`: ボタン`Manage Repositories...`→`Manage Sources...`(ダイアログタイトルより短い、ボタン幅に収まる表現を選定)、「一致するエントリが無い」エラーメッセージ
+- `update_check.cpp`: Helpメニュー版の同エラーメッセージも同様に修正
+- README: Features/Remote Registry/Usageに残っていた`Manage Repositories...`/`リポジトリのURL`という古い表記を、実際のUIに合わせて`Manage Sources...`/`公開ページのURL`に更新。Status節にも今回の変更内容を追記
+
+機能面の変更は無く表記の統一のみのため、パッチバージョンとして`v2.0.1`に更新(`dllmain.cpp`、User-Agent文字列、README)。
+
+### 動作確認結果
+
+ビルドして、ダイアログ・ボタン・エラーメッセージの表示、`2.0.1`のバージョン表示を確認済み。
+
+### 次にやること
+
+- v2.0.1としてコミット・プッシュ

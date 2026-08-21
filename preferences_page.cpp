@@ -17,7 +17,7 @@
 //
 // これまでHelpメニューに散らばっていた以下を1ページに集約する:
 //   - Automatic Check Settings...(有効/無効・間隔) -> このページに直接埋め込み
-//   - Manage Component Repositories...             -> ボタンから同じダイアログを開く
+//   - Manage Sources...                             -> ボタンから同じダイアログを開く
 //   - Check for Component Updates                  -> 「Check Now」ボタン
 //
 // repository_mapping_ui.cpp等と同じ、WS_CHILDスタイルのダイアログテンプレート
@@ -173,8 +173,8 @@ public:
                     ShowUpdateResultWindow(
                         core_api::get_main_window(),
                         results,
-                        "No installed components matched a registered repository.\n"
-                        "Use \"Manage Repositories...\" to register one."
+                        "No installed components matched a registered source.\n"
+                        "Use \"Manage Sources...\" to register one."
                     );
                 });
             });
@@ -243,7 +243,7 @@ public:
         y += rowH + 14;
 
         const int BTN_W = 170;
-        CreateWindowEx(0, _T("BUTTON"), _T("Manage Repositories..."),
+        CreateWindowEx(0, _T("BUTTON"), _T("Manage Sources..."),
             WS_CHILD | WS_VISIBLE,
             MARGIN, y, BTN_W, editH, hDlg, (HMENU)(INT_PTR)IDC_PP_MANAGE_REPOS_BTN,
             NULL, NULL);

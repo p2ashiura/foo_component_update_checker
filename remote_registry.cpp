@@ -75,7 +75,7 @@ void tryRefreshCache(abort_callback& abort, RemoteRegistryFetchStatus* outStatus
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.0.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.0.1");
 
         file::ptr response = request->run(k_remoteRegistryUrl.c_str(), abort);
 

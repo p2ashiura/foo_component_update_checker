@@ -15,7 +15,7 @@
 #include <algorithm>
 
 // ------------------------------------------------------------------
-// Repository Mapping登録用ダイアログ
+// Manage Component Sourcesダイアログ(旧称: Repository Mapping)
 //
 // foo_albumtrainの設定ダイアログと同じ方式(.rcファイルを使わず、
 // DialogBoxIndirectParam + 実行時のCreateWindowExでコントロールを組み立てる)
@@ -23,8 +23,8 @@
 //
 // レイアウト:
 //   [Component:      [ドロップダウン(導入済みコンポーネント一覧)]]
-//   [Repository URL:  [Edit(GitHub/GitLab/Codeberg/marc2k3.github.io
-//                            いずれかのURLを貼り付ける)]]
+//   [Page URL:        [Edit(GitHub/GitLab/Codeberg/marc2k3.github.io/
+//                            SourceForge/foobar.hyv.fi いずれかのURLを貼り付ける)]]
 //   [Save] [Suggest for Shared Registry...]
 //   [登録済み一覧(ListBox)]
 //   [Remove Selected]
@@ -345,8 +345,8 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
 
         y += rowH + 4;
 
-        // ---- Repository URL ----
-        CreateWindowEx(0, _T("STATIC"), _T("Repository URL:"),
+        // ---- Page URL ----
+        CreateWindowEx(0, _T("STATIC"), _T("Page URL:"),
             WS_CHILD | WS_VISIBLE,
             MARGIN, y + 2, LABEL_W, labelH, hDlg, NULL, NULL, NULL);
 
@@ -460,7 +460,7 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             HWND componentCombo = GetDlgItem(hDlg, IDC_RM_COMPONENT_COMBO);
             int sel = (int)SendMessage(componentCombo, CB_GETCURSEL, 0, 0);
             if (sel == CB_ERR) {
-                MessageBox(hDlg, _T("Please select a component."), _T("Repository Mapping"), MB_OK | MB_ICONWARNING);
+                MessageBox(hDlg, _T("Please select a component."), _T("Manage Component Sources"), MB_OK | MB_ICONWARNING);
                 return TRUE;
             }
 
@@ -473,14 +473,14 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             std::string source, owner, repo, url;
             if (!TryParseRepositoryUrl(urlBuf, source, owner, repo, url)) {
                 MessageBox(hDlg,
-                    _T("Please paste a repository URL from a supported site, e.g.\n")
+                    _T("Please paste a page URL from a supported site, e.g.\n")
                     _T("https://github.com/owner/repo\n")
                     _T("https://gitlab.com/owner/repo\n")
                     _T("https://codeberg.org/owner/repo\n")
                     _T("https://marc2k3.github.io/component/xxx/\n")
                     _T("https://sourceforge.net/projects/<project>/files/<folder>/\n")
                     _T("https://foobar.hyv.fi/?view=<component>"),
-                    _T("Repository Mapping"), MB_OK | MB_ICONWARNING);
+                    _T("Manage Component Sources"), MB_OK | MB_ICONWARNING);
                 return TRUE;
             }
 
@@ -500,7 +500,7 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             HWND listBox = GetDlgItem(hDlg, IDC_RM_LIST);
             int sel = (int)SendMessage(listBox, LB_GETCURSEL, 0, 0);
             if (sel == LB_ERR) {
-                MessageBox(hDlg, _T("Please select an entry to remove."), _T("Repository Mapping"), MB_OK | MB_ICONWARNING);
+                MessageBox(hDlg, _T("Please select an entry to remove."), _T("Manage Component Sources"), MB_OK | MB_ICONWARNING);
                 return TRUE;
             }
 
@@ -529,7 +529,7 @@ LRESULT CALLBACK RepositoryMappingDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPA
             std::string source, owner, repo, url;
             if (!TryParseRepositoryUrl(urlBuf, source, owner, repo, url)) {
                 MessageBox(hDlg,
-                    _T("Please paste a repository URL from a supported site first, e.g.\n")
+                    _T("Please paste a page URL from a supported site first, e.g.\n")
                     _T("https://github.com/owner/repo\n")
                     _T("https://gitlab.com/owner/repo\n")
                     _T("https://codeberg.org/owner/repo\n")
@@ -596,7 +596,7 @@ void ShowRepositoryMappingDialog(HWND parent) {
         DLGTEMPLATE dlg;
         WORD menu = 0;
         WORD wclass = 0;
-        WCHAR title[24] = L"Repository Mapping";
+        WCHAR title[32] = L"Manage Component Sources";
         // DS_SHELLFONT指定時は、フォールバック用のpointsize/typefaceを
         // 続けて格納しておく必要がある(無いとテーマフォントが正しく
         // 適用されず、大きい既定フォントで表示されてしまう)。
