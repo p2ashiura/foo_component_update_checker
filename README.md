@@ -13,15 +13,14 @@ foobar2000用コンポーネント。導入済みのサードパーティー製�
 
 ## Status / 現在の状態
 
-v2.0.1. Now builds and runs as either a 32-bit or 64-bit component
-(previously 64-bit only). Also cleaned up in-app wording ("Repository
-URL" → "Page URL", "Manage Repositories..." → "Manage Sources...") to
-better reflect that not every supported site is a code repository.
+v2.1.0. Preferences now has an **Open Known-Component Registry...** button,
+which opens the shared registry repository directly in your browser — a
+quick way to see the full list of already-known components, in response to
+community feedback.
 
-v2.0.1。32bit・64bitどちらの環境でもビルド・動作するようになった
-(これまでは64bit版のみ)。あわせて、アプリ内の表記("Repository URL" →
-"Page URL"、"Manage Repositories..." → "Manage Sources...")も、対応サイトが
-必ずしもコードリポジトリとは限らない今の実態に合わせて整理した。
+v2.1.0。Preferencesに**Open Known-Component Registry...**ボタンを追加した。
+共有DBのリポジトリをブラウザで直接開けるようになり、既に登録済みの
+コンポーネント一覧をすぐ確認できる。コミュニティからのフィードバックを受けての対応。
 
 ## Features / 機能
 
@@ -54,6 +53,9 @@ v2.0.1。32bit・64bitどちらの環境でもビルド・動作するように�
 - Users can propose additions to the shared registry via a
   **Suggest for Shared Registry...** button, which opens a pre-filled pull
   request flow on GitHub — no account setup or API token needed
+- An **Open Known-Component Registry...** button in Preferences opens the
+  shared registry repository directly in your browser, for browsing the
+  full list of already-known components
 - Supports Windows dark mode, matching the rest of foobar2000's Preferences
   dialog
 - All settings live in **Preferences → Tools → Component Update Checker**
@@ -64,10 +66,10 @@ v2.0.1。32bit・64bitどちらの環境でもビルド・動作するように�
 - **Preferences → Tools → Component Update Checker → Manage
   Sources...**で、公開ページのURLを貼り付けるだけでコンポーネントごとに
   登録できる(サイトはURLから自動判定される)。対応サイト:
-  - GitHub・GitLab・Codeberg — Releases API、任意のリポジトリに対応
-  - marc2k3.github.io — このサイト専用のページパーサー(このサイト限定)
-  - SourceForge — RSSフィードベース、どのプロジェクトのファイルフォルダにも対応
-  - foobar.hyv.fi — このサイト専用のページパーサー(このサイト限定)
+  - GitHub・GitLab・Codeberg—Releases API、任意のリポジトリに対応
+  - marc2k3.github.io—このサイト専用のページパーサー(このサイト限定)
+  - SourceForge—RSSフィードベース、どのプロジェクトのファイルフォルダにも対応
+  - foobar.hyv.fi—このサイト専用のページパーサー(このサイト限定)
 
   もしくは、既に
   [共有の既知コンポーネントDB](#remote-registry--既知コンポーネントdb)に
@@ -83,6 +85,9 @@ v2.0.1。32bit・64bitどちらの環境でもビルド・動作するように�
 - **Suggest for Shared Registry...**ボタンから、共有DBへの追加をユーザー自身が
   提案できる(GitHub上でPull Requestの下書きが自動的に開かれる。アカウント
   設定やAPIトークンは不要)
+- Preferencesの**Open Known-Component Registry...**ボタンから、共有DBの
+  リポジトリをブラウザで直接開ける。既に登録済みのコンポーネント一覧を
+  ブラウズしたいときに使う
 - Windowsのダークモードに対応し、foobar2000本体のPreferencesダイアログと
   見た目が揃う
 - 設定は**Preferences → Tools → Component Update Checker**に集約
@@ -111,7 +116,7 @@ v2.0.1。32bit・64bitどちらの環境でもビルド・動作するように�
   `componentversion`インターフェースからは、信頼できるコンポーネント単位の
   GUIDが取得できないため
 - サイト固有のページパーサー(現状marc2k3.github.ioとfoobar.hyv.fi)は
-  構造上壊れやすい — 対象サイトのページ構造が変わった場合、誤った結果を
+  構造上壊れやすい—対象サイトのページ構造が変わった場合、誤った結果を
   返すのではなく明示的なエラーとして確認失敗を表示する。一方SourceForge
   はRSSフィード経由の汎用対応であり、特定のプロジェクトに依存しない
 
@@ -171,16 +176,16 @@ surprises.
 このコンポーネントは、更新確認のために自発的にインターネットへ接続する。
 具体的には:
 
-- `api.github.com` — 導入済みコンポーネントのGitHub Releasesを確認するため
-- `gitlab.com` — 導入済みコンポーネントのGitLab Releasesを確認するため
-- `codeberg.org` — 導入済みコンポーネントのCodeberg Releasesを確認するため
-- `marc2k3.github.io` — 導入済みコンポーネントのうち、当該サイトで配布されて
+- `api.github.com`—導入済みコンポーネントのGitHub Releasesを確認するため
+- `gitlab.com`—導入済みコンポーネントのGitLab Releasesを確認するため
+- `codeberg.org`—導入済みコンポーネントのCodeberg Releasesを確認するため
+- `marc2k3.github.io`—導入済みコンポーネントのうち、当該サイトで配布されて
   いるものを確認するため
-- `sourceforge.net` — 導入済みコンポーネントのSourceForgeプロジェクトの
+- `sourceforge.net`—導入済みコンポーネントのSourceForgeプロジェクトの
   ファイルフィードを確認するため
-- `foobar.hyv.fi` — 導入済みコンポーネントのうち、当該サイトで配布されて
+- `foobar.hyv.fi`—導入済みコンポーネントのうち、当該サイトで配布されて
   いるものを確認するため
-- `raw.githubusercontent.com` — 共有の
+- `raw.githubusercontent.com`—共有の
   [既知コンポーネントDB](#remote-registry--既知コンポーネントdb)を取得するため
 
 個人情報・音楽ライブラリの内容・再生履歴・ファイルパス等は一切送信しない。
@@ -248,6 +253,8 @@ GitHub APIのレスポンス解析には[nlohmann/json](https://github.com/nlohm
    - `https://foobar.hyv.fi/?view=<component>`
 4. Adjust **Automatically check for updates**, **Check interval (days)**,
    and the notification level as needed.
+5. Curious what's already in the shared registry? Click **Open
+   Known-Component Registry...** to browse it on GitHub.
 
 **日本語**
 
@@ -265,6 +272,8 @@ GitHub APIのレスポンス解析には[nlohmann/json](https://github.com/nlohm
    - `https://foobar.hyv.fi/?view=<component>`
 4. 必要に応じて**Automatically check for updates**・**Check interval
    (days)**・通知レベルを調整する
+5. 共有DBに何が登録されているか気になったら、**Open Known-Component
+   Registry...**をクリックしてGitHub上でブラウズできる
 
 ## Docs / 関連文書
 

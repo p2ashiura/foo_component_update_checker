@@ -7,7 +7,9 @@
 
 #include <windows.h>
 #include <commctrl.h>
+#include <shellapi.h>
 #pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "shell32.lib")
 
 #include <vector>
 #include <string>
@@ -34,10 +36,14 @@ const int IDC_PP_CHECK_NOW_BTN = 4004;
 const int IDC_PP_NOTIFY_UPDATES_ONLY_RADIO = 4005;
 const int IDC_PP_NOTIFY_UPDATES_AND_ERRORS_RADIO = 4006;
 const int IDC_PP_NOTIFY_ALWAYS_RADIO = 4007;
+const int IDC_PP_OPEN_REGISTRY_BTN = 4008;
 
 // {38FF764D-0212-4E61-8A6B-B3D7C5DE8F9D}
 const GUID guid_preferences_page_component_update_checker =
 { 0x38ff764d, 0x0212, 0x4e61, { 0x8a, 0x6b, 0xb3, 0xd7, 0xc5, 0xde, 0x8f, 0x9d } };
+
+// README「Known-Component Registry」節と表記を揃えたURL。
+const char* const kRegistryUrl = "https://github.com/p2ashiura/foo_component_update_checker-registry";
 
 // DS_SHELLFONTの自動フォント解決に頼らず、Windowsのダイアログ標準フォント
 // (メッセージボックス等と同じ、通常Segoe UI 9pt相当)を自前で作成して使う。
@@ -158,6 +164,11 @@ public:
             return;
         }
 
+        if (id == IDC_PP_OPEN_REGISTRY_BTN) {
+            ShellExecuteA(m_wnd, "open", kRegistryUrl, NULL, NULL, SW_SHOWNORMAL);
+            return;
+        }
+
         if (id == IDC_PP_CHECK_NOW_BTN) {
             std::vector<InstalledComponentInfo> installed = GetInstalledComponents();
 
@@ -251,6 +262,13 @@ public:
         CreateWindowEx(0, _T("BUTTON"), _T("Check for Updates Now"),
             WS_CHILD | WS_VISIBLE,
             MARGIN + BTN_W + 10, y, BTN_W, editH, hDlg, (HMENU)(INT_PTR)IDC_PP_CHECK_NOW_BTN,
+            NULL, NULL);
+
+        y += rowH + 10;
+
+        CreateWindowEx(0, _T("BUTTON"), _T("Open Known-Component Registry..."),
+            WS_CHILD | WS_VISIBLE,
+            MARGIN, y, 280, editH, hDlg, (HMENU)(INT_PTR)IDC_PP_OPEN_REGISTRY_BTN,
             NULL, NULL);
 
         y += rowH + MARGIN;
