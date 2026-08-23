@@ -222,7 +222,7 @@ bool FetchGitHubLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.1.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.2.0");
         request->add_header("Accept", "application/vnd.github+json");
 
         file::ptr response = request->run(url, abort);
@@ -256,7 +256,7 @@ bool FetchGitLabLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.1.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.2.0");
 
         file::ptr response = request->run(url, abort);
         response->read_string_raw(body, abort);
@@ -295,7 +295,7 @@ bool FetchCodebergLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.1.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.2.0");
 
         file::ptr response = request->run(url, abort);
         response->read_string_raw(body, abort);
@@ -331,7 +331,7 @@ bool FetchMarc2k3LatestRelease(
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.1.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.2.0");
 
         file::ptr response = request->run(pfc::string8(pageUrl.c_str()), abort);
         response->read_string_raw(body, abort);
@@ -412,7 +412,7 @@ bool FetchSourceForgeLatestRelease(
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.1.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.2.0");
 
         file::ptr response = request->run(pfc::string8(rssUrl.c_str()), abort);
         response->read_string_raw(body, abort);
@@ -469,7 +469,7 @@ bool FetchHyvLatestRelease(
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.1.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.2.0");
 
         file::ptr response = request->run(pfc::string8(pageUrl.c_str()), abort);
         response->read_string_raw(body, abort);
@@ -689,24 +689,14 @@ public:
     void execute(t_uint32 p_index, service_ptr_t<service_base> p_callback) override {
         std::vector<InstalledComponentInfo> installed = GetInstalledComponents();
 
-        fb2k::inCpuWorkerThread([installed] {
-            abort_callback& abort = fb2k::mainAborter();
-            std::vector<CheckResult> results = RunUpdateCheck(installed, abort);
-
-            fb2k::inMainThread([results] {
-                // アプリ終了処理の途中でこのコールバックが呼ばれた場合、
-                // 新しくウィンドウを作らずに打ち切る(main_thread_callback経由の
-                // 処理が終了中にディスパッチされることによる不具合を避ける)。
-                if (fb2k::mainAborter().is_aborting()) return;
-
-                ShowUpdateResultWindow(
-                    core_api::get_main_window(),
-                    results,
-                    "No installed components matched a registered source.\n"
-                    "Use \"Manage Sources...\" (Preferences > Tools > Component Update Checker) to register one."
-                );
-            });
-        });
+        // 検査の起動・進捗表示・結果反映は全てShowUpdateResultWindow側(result_window.cpp)
+        // に一本化されている。ここではダイアログを開くだけでよい。
+        ShowUpdateResultWindow(
+            core_api::get_main_window(),
+            installed,
+            "No installed components matched a registered source.\n"
+            "Use \"Manage Sources...\" (Preferences > Tools > Component Update Checker) to register one."
+        );
     }
 };
 

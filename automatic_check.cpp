@@ -136,7 +136,7 @@ void runAutomaticCheck() {
                     // 処理が終了中にディスパッチされることによる不具合を避ける)。
                     if (fb2k::mainAborter().is_aborting()) return;
 
-                    ShowUpdateResultWindow(
+                    ShowUpdateResultWindowWithResults(
                         core_api::get_main_window(),
                         results,
                         "Automatic check: no installed components matched a registered repository."

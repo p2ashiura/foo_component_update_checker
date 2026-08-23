@@ -172,23 +172,14 @@ public:
         if (id == IDC_PP_CHECK_NOW_BTN) {
             std::vector<InstalledComponentInfo> installed = GetInstalledComponents();
 
-            fb2k::inCpuWorkerThread([installed] {
-                abort_callback& abort = fb2k::mainAborter();
-                std::vector<CheckResult> results = RunUpdateCheck(installed, abort);
-
-                fb2k::inMainThread([results] {
-                    // アプリ終了処理の途中でこのコールバックが呼ばれた場合、
-                    // 新しくウィンドウを作らずに打ち切る。
-                    if (fb2k::mainAborter().is_aborting()) return;
-
-                    ShowUpdateResultWindow(
-                        core_api::get_main_window(),
-                        results,
-                        "No installed components matched a registered source.\n"
-                        "Use \"Manage Sources...\" to register one."
-                    );
-                });
-            });
+            // 検査の起動・進捗表示・結果反映は全てShowUpdateResultWindow側
+            // (result_window.cpp)に一本化されている。ここではダイアログを開くだけでよい。
+            ShowUpdateResultWindow(
+                core_api::get_main_window(),
+                installed,
+                "No installed components matched a registered source.\n"
+                "Use \"Manage Sources...\" to register one."
+            );
             return;
         }
     }

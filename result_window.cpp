@@ -26,6 +26,14 @@ namespace {
 
 const int IDC_RW_LIST = 5001;
 const int IDC_RW_OPEN_BTN = 5002;
+const int IDC_RW_STATUS_LABEL = 5003;
+const int IDC_RW_PROGRESS = 5004;
+const int IDC_RW_EMPTY_LABEL = 5005;
+
+// 手動確認・自動確認のどちらから開いたかに関わらず、結果ウィンドウは同時に
+// 1つまでとする。開いている間、そのHWNDをここに保持する
+// (メインスレッドからしか触らないため、排他制御は不要)。
+HWND g_resultWindowHwnd = NULL;
 
 // DS_SHELLFONTの自動フォント解決に頼らず、Windowsのダイアログ標準フォント
 // (メッセージボックス等と同じ、通常Segoe UI 9pt相当)を自前で作成して使う。
@@ -84,7 +92,10 @@ std::string StatusToDisplayString(CheckResult const& r) {
 }
 
 struct ResultWindowContext {
+    std::vector<InstalledComponentInfo> installed;
     std::vector<CheckResult> results;
+    bool checking = true;
+    std::string emptyMessage;
     fb2k::CCoreDarkModeHooks darkMode;
 };
 
@@ -180,6 +191,7 @@ LRESULT CALLBACK ResultWindowDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM l
     case WM_INITDIALOG: {
         ResultWindowContext* ctx = (ResultWindowContext*)lp;
         SetWindowLongPtr(hDlg, DWLP_USER, (LONG_PTR)ctx);
+        g_resultWindowHwnd = hDlg;
 
         int lineH = GetDialogFontLineHeight(hDlg);
         int editH = lineH + 10;
@@ -191,7 +203,7 @@ LRESULT CALLBACK ResultWindowDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM l
         int y = MARGIN;
 
         HWND hList = CreateWindowEx(WS_EX_CLIENTEDGE, WC_LISTVIEW, NULL,
-            WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
+            WS_CHILD | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP | (ctx->checking ? 0 : WS_VISIBLE),
             MARGIN, y, CLIENT_W - MARGIN * 2, LIST_H, hDlg, (HMENU)(INT_PTR)IDC_RW_LIST,
             NULL, NULL);
 
@@ -209,13 +221,32 @@ LRESULT CALLBACK ResultWindowDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM l
         col.cx = 140; col.pszText = (LPSTR)"Status";
         SendMessageA(hList, LVM_INSERTCOLUMNA, 3, (LPARAM)&col);
 
-        PopulateListView(hList, ctx->results);
+        // 検査完了までの間、ListViewと同じ領域に進捗表示(マーキー型プログレスバー
+        // + ステータステキスト)を重ねて置く。完了後はこちらを隠し、ListViewを
+        // 表示する側に切り替える(ウィンドウサイズは変えない)。
+        CreateWindowEx(0, _T("STATIC"), _T("Checking for updates..."),
+            WS_CHILD | (ctx->checking ? WS_VISIBLE : 0) | SS_CENTER,
+            MARGIN, y + LIST_H / 2 - editH, CLIENT_W - MARGIN * 2, editH,
+            hDlg, (HMENU)(INT_PTR)IDC_RW_STATUS_LABEL, NULL, NULL);
+
+        HWND hProgress = CreateWindowEx(0, PROGRESS_CLASS, NULL,
+            WS_CHILD | (ctx->checking ? WS_VISIBLE : 0) | PBS_MARQUEE,
+            MARGIN, y + LIST_H / 2, CLIENT_W - MARGIN * 2, editH,
+            hDlg, (HMENU)(INT_PTR)IDC_RW_PROGRESS, NULL, NULL);
+        SendMessage(hProgress, PBM_SETMARQUEE, TRUE, 30);
+
+        // 検査完了後、結果が0件だった場合はこちらにemptyMessageを表示する
+        // (ListViewとは排他表示。初期状態では非表示)。
+        CreateWindowEx(0, _T("STATIC"), _T(""),
+            WS_CHILD | SS_LEFT,
+            MARGIN, y, CLIENT_W - MARGIN * 2, LIST_H,
+            hDlg, (HMENU)(INT_PTR)IDC_RW_EMPTY_LABEL, NULL, NULL);
 
         y += LIST_H + 10;
 
         const int BTN_W = 150;
         CreateWindowEx(0, _T("BUTTON"), _T("Open Release Page"),
-            WS_CHILD | WS_VISIBLE,
+            WS_CHILD | WS_VISIBLE | (ctx->checking ? WS_DISABLED : 0),
             MARGIN, y, BTN_W, editH, hDlg, (HMENU)(INT_PTR)IDC_RW_OPEN_BTN,
             NULL, NULL);
 
@@ -292,6 +323,55 @@ LRESULT CALLBACK ResultWindowDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM l
             SetWindowSubclass(listForColors, ListViewHeaderColorSubclassProc, 1, (DWORD_PTR)dark);
         }
 
+        // ダイアログ表示と同時に検査を開始する(ここより前で、ダイアログの
+        // 見た目(進捗表示)は既に組み終わっている)。ダイアログはモーダルだが、
+        // fb2k::inMainThreadのコールバックは通常のウィンドウメッセージと同様に
+        // 配送されるため、表示中も問題なく結果を受け取れる。
+        //
+        // ctx->checking == false の場合(自動チェックからの呼び出し)は、
+        // 検査は既に完了しているため、ここでは検査を開始せずそのまま結果を表示する
+        // (コントロールの初期表示状態は、生成時点で既にctx->checkingに基づいて
+        // 決まっている。ここではListViewへの中身の反映のみ行う)。
+        if (ctx->checking) {
+            std::vector<InstalledComponentInfo> installedCopy = ctx->installed;
+            fb2k::inCpuWorkerThread([installedCopy, hDlg] {
+                abort_callback& abort = fb2k::mainAborter();
+                std::vector<CheckResult> results = RunUpdateCheck(installedCopy, abort);
+
+                fb2k::inMainThread([results, hDlg] {
+                    // ユーザーが検査中にダイアログを閉じていた場合は何もしない
+                    // (検査自体はバックグラウンドで完走させ、結果は捨てる)。
+                    if (!IsWindow(hDlg)) return;
+
+                    ResultWindowContext* ctx2 = (ResultWindowContext*)GetWindowLongPtr(hDlg, DWLP_USER);
+                    if (!ctx2) return;
+
+                    ctx2->results = results;
+                    ctx2->checking = false;
+
+                    ShowWindow(GetDlgItem(hDlg, IDC_RW_STATUS_LABEL), SW_HIDE);
+                    ShowWindow(GetDlgItem(hDlg, IDC_RW_PROGRESS), SW_HIDE);
+
+                    if (results.empty()) {
+                        SetWindowTextA(GetDlgItem(hDlg, IDC_RW_EMPTY_LABEL), ctx2->emptyMessage.c_str());
+                        ShowWindow(GetDlgItem(hDlg, IDC_RW_EMPTY_LABEL), SW_SHOW);
+                    } else {
+                        HWND hListDone = GetDlgItem(hDlg, IDC_RW_LIST);
+                        PopulateListView(hListDone, ctx2->results);
+                        ShowWindow(hListDone, SW_SHOW);
+                        EnableWindow(GetDlgItem(hDlg, IDC_RW_OPEN_BTN), TRUE);
+                    }
+                });
+            });
+        } else {
+            if (ctx->results.empty()) {
+                SetWindowTextA(GetDlgItem(hDlg, IDC_RW_EMPTY_LABEL), ctx->emptyMessage.c_str());
+            } else {
+                PopulateListView(GetDlgItem(hDlg, IDC_RW_LIST), ctx->results);
+                EnableWindow(GetDlgItem(hDlg, IDC_RW_OPEN_BTN), TRUE);
+            }
+        }
+
         return TRUE;
     }
 
@@ -332,17 +412,27 @@ LRESULT CALLBACK ResultWindowDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM l
 
 } // namespace
 
-void ShowUpdateResultWindow(HWND parent, std::vector<CheckResult> const& results, const char* emptyMessage) {
-    if (results.empty()) {
-        MessageBoxA(parent, emptyMessage, "Component Update Checker", MB_OK);
-        return;
-    }
+namespace {
 
-    INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_LISTVIEW_CLASSES };
+// 実際にダイアログを開く共通処理。checking==trueならinstalledを使い、
+// ダイアログ表示後に内部で検査を開始する(手動確認用)。checking==falseなら
+// precomputedResultsをそのまま使い、検査は行わない(自動確認用。検査は
+// 呼び出し元(automatic_check.cpp)で既に完了している)。
+void ShowResultDialogInternal(
+    HWND parent,
+    std::vector<InstalledComponentInfo> const& installed,
+    std::vector<CheckResult> const& precomputedResults,
+    bool checking,
+    const char* emptyMessage
+) {
+    INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_LISTVIEW_CLASSES | ICC_PROGRESS_CLASS };
     InitCommonControlsEx(&icc);
 
     ResultWindowContext ctx;
-    ctx.results = results;
+    ctx.installed = installed;
+    ctx.results = precomputedResults;
+    ctx.checking = checking;
+    ctx.emptyMessage = emptyMessage;
 
     struct {
         DLGTEMPLATE dlg;
@@ -364,4 +454,33 @@ void ShowUpdateResultWindow(HWND parent, std::vector<CheckResult> const& results
     DialogBoxIndirectParam(
         NULL, (LPCDLGTEMPLATE)&dlgData, parent,
         (DLGPROC)ResultWindowDialogProc, (LPARAM)&ctx);
+
+    // ダイアログが閉じ終わったので、開いているウィンドウの記録を解除する
+    // (WM_INITDIALOGで設定したものを、DialogBoxIndirectParamが返ってきた
+    // = ダイアログが完全に閉じた、ここで初めて解除する)。
+    g_resultWindowHwnd = NULL;
+}
+
+} // namespace
+
+void ShowUpdateResultWindow(HWND parent, std::vector<InstalledComponentInfo> const& installed, const char* emptyMessage) {
+    if (g_resultWindowHwnd && IsWindow(g_resultWindowHwnd)) {
+        // 既に結果ウィンドウが開いている(自動確認の結果か、他の手動確認)。
+        // 新しく開き直さず、既存のウィンドウを前面に出すだけにする。
+        SetForegroundWindow(g_resultWindowHwnd);
+        return;
+    }
+
+    ShowResultDialogInternal(parent, installed, {}, /*checking=*/true, emptyMessage);
+}
+
+void ShowUpdateResultWindowWithResults(HWND parent, std::vector<CheckResult> const& results, const char* emptyMessage) {
+    if (g_resultWindowHwnd && IsWindow(g_resultWindowHwnd)) {
+        // 手動確認のウィンドウ(または前回の自動確認の結果)が既に開いている。
+        // Non-Intrusiveの原則により、今回の自動確認の表示は諦め、
+        // 次回の定期確認に委ねる(前面に出す・待たせる、といったことはしない)。
+        return;
+    }
+
+    ShowResultDialogInternal(parent, {}, results, /*checking=*/false, emptyMessage);
 }
