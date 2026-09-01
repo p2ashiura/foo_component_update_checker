@@ -75,7 +75,7 @@ void tryRefreshCache(abort_callback& abort, RemoteRegistryFetchStatus* outStatus
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.2.0");
+        request->add_header("User-Agent", "foo_component_update_checker/2.3.0");
 
         file::ptr response = request->run(k_remoteRegistryUrl.c_str(), abort);
 
@@ -156,6 +156,14 @@ bool findRemoteRegistryEntry(
 ) {
     std::string target = normalizeDllName(dllName);
 
+    // 注意: known_components.jsonでは、同一DLL名を持つ複数のエントリ(例: 同名の
+    // DLLを出力する複数のfork)が存在しうる。ここでは配列内で先に出現した方
+    // (対応済みsourceに限る)を採用し、以降の同名エントリは無視する。
+    // 「バージョン番号を比較して大きい方を選ぶ」といったことはしない
+    // (別プロジェクトとして独立にバージョンを刻んでいる可能性があり、
+    // 単純比較では誤った答えを自信満々に返すことになりかねないため。DP-0009/DP-0010)。
+    // 特定のforkを確実にチェックしたい場合は、Manage Sources...でローカルに
+    // 直接登録すること(ローカル登録は常にこのRemote Registryより優先される)。
     for (auto const& e : entries) {
         // 対応済みのsource("github"/"gitlab"/"codeberg"/"marc2k3"/"sourceforge"/"hyv")
         // のみ利用可能とみなす。未対応のsource(将来追加予定のサイトが登録された

@@ -52,6 +52,8 @@ std::vector<RemoteRegistryEntry> GetRemoteRegistryEntries(abort_callback& abort,
 // dllNameで検索する(拡張子の有無・大文字小文字は無視)。
 // 対応済みのsource("github"/"gitlab"/"codeberg"/"marc2k3"/"sourceforge"/"hyv")の
 // エントリのみ現時点では利用可能とみなす。
+// 同一dllNameのエントリが複数存在する場合(forkなど)、配列内で先に出現した
+// 方のみが使われる(バージョン比較による自動選択は行わない。詳細はcpp参照)。
 bool findRemoteRegistryEntry(
     std::vector<RemoteRegistryEntry> const& entries,
     std::string const& dllName,

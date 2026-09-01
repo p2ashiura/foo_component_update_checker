@@ -13,18 +13,14 @@ foobar2000用コンポーネント。導入済みのサードパーティー製�
 
 ## Status / 現在の状態
 
-v2.2.0. Manual checks ("Check Third-Party Component Updates" in the Help
-menu, or "Check for Updates Now" in Preferences) now show immediate visual
-feedback: the results window opens right away with a progress indicator,
-then switches to the results list once the check completes. Previously
-there was no indication a check was running, which looked like the
-component wasn't responding.
+v2.3.0. Results are now sorted by status: components with an update
+available appear first, then errors, then "unable to compare", with
+already-current components at the bottom — so the items that need your
+attention aren't buried in a long list.
 
-v2.2.0。手動確認(Helpメニューの「Check Third-Party Component Updates」、
-またはPreferencesの「Check for Updates Now」)で、すぐに視覚的なフィードバックが
-出るようになった。結果ウィンドウがその場で開き、進捗表示(プログレスバー)が
-出た後、検査完了とともに結果一覧へ切り替わる。これまでは検査中であることを
-示す表示が無く、反応していないように見えていた。
+v2.3.0。結果一覧をstatus(状態)でソートするようにした: 更新ありのものが
+最初に、続いてエラー、比較不能、最後に既に最新のもの、という順に並ぶ。
+対応が必要な項目が長いリストの中に埋もれないようにするため。
 
 ## Features / 機能
 
@@ -50,8 +46,10 @@ v2.2.0。手動確認(Helpメニューの「Check Third-Party Component Updates�
 - Manual check ("Check Third-Party Component Updates" in the Help menu, or
   "Check for Updates Now" in Preferences) opens the results window right
   away, showing a progress indicator while components are checked and
-  switching to the results list once done; each result links to its
-  release page
+  switching to the results list once done; results are sorted with the
+  most actionable ones first (updates available, then errors, then
+  "unable to compare", then already-current), and each result links to
+  its release page
 - Automatic check on startup (delayed ~20s, configurable interval of 1–30
   days). By default only pops up when an update is found; this can be
   changed in Preferences to also show communication errors, or to always
@@ -84,7 +82,8 @@ v2.2.0。手動確認(Helpメニューの「Check Third-Party Component Updates�
   prerelease表記にも対応)。表記が読み取れない場合は誤判定せず「比較不能」と表示
 - 手動確認(Helpメニューの「Check Third-Party Component Updates」、または
   Preferencesの「Check for Updates Now」)。結果ウィンドウがその場で開き、
-  検査中は進捗表示、完了後は結果一覧に切り替わる。各リリースページへの
+  検査中は進捗表示、完了後は結果一覧に切り替わる。結果は対応が必要な順
+  (更新あり→エラー→比較不能→最新)にソートされ、各リリースページへの
   リンクをクリックで開ける
 - 起動時の自動確認(約20秒遅延実行、間隔は1〜30日で設定可能)。既定では
   更新が見つかったときだけポップアップするが、Preferencesで通信エラーも

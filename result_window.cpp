@@ -13,6 +13,7 @@
 
 #include <vector>
 #include <string>
+#include <algorithm>
 
 // ------------------------------------------------------------------
 // 更新確認結果ウィンドウ
@@ -89,6 +90,26 @@ std::string StatusToDisplayString(CheckResult const& r) {
     case UpdateStatus::Error: return "Error: " + r.errorMessage;
     }
     return "";
+}
+
+// 「操作が必要な行を上に」という考え方で並び順を決める:
+// 更新あり(一番見てほしい) > エラー(要確認) > 比較不能(要確認) > 最新(見る必要が薄い)。
+// 同じ優先度内の順序は変えない(std::stable_sort)。
+int StatusSortRank(UpdateStatus status) {
+    switch (status) {
+    case UpdateStatus::UpdateAvailable: return 0;
+    case UpdateStatus::Error: return 1;
+    case UpdateStatus::ComparisonUnsupported: return 2;
+    case UpdateStatus::UpToDate: return 3;
+    }
+    return 4;
+}
+
+void SortResultsByStatus(std::vector<CheckResult>& results) {
+    std::stable_sort(results.begin(), results.end(),
+        [](CheckResult const& a, CheckResult const& b) {
+            return StatusSortRank(a.status) < StatusSortRank(b.status);
+        });
 }
 
 struct ResultWindowContext {
@@ -348,6 +369,7 @@ LRESULT CALLBACK ResultWindowDialogProc(HWND hDlg, UINT msg, WPARAM wp, LPARAM l
 
                     ctx2->results = results;
                     ctx2->checking = false;
+                    SortResultsByStatus(ctx2->results);
 
                     ShowWindow(GetDlgItem(hDlg, IDC_RW_STATUS_LABEL), SW_HIDE);
                     ShowWindow(GetDlgItem(hDlg, IDC_RW_PROGRESS), SW_HIDE);
@@ -433,6 +455,7 @@ void ShowResultDialogInternal(
     ctx.results = precomputedResults;
     ctx.checking = checking;
     ctx.emptyMessage = emptyMessage;
+    SortResultsByStatus(ctx.results);
 
     struct {
         DLGTEMPLATE dlg;
