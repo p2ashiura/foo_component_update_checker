@@ -9,9 +9,13 @@
 // 自動確認(automatic_check.cpp)の両方から共用する。
 
 struct InstalledComponentInfo {
-    std::string fileName;
+    std::string fileName;       // コンポーネントはDLL名。パッケージはパッケージのid(GUID)。
     std::string displayName;
     std::string installedVersion;
+    // SMP/JSplitterのパッケージなど、自身が更新元のURLを持つ導入物用。
+    // 空でなければ、Repository MappingやRemote Registryを経由せず、
+    // このURLをそのまま取得元として使う(通常のコンポーネントでは空)。
+    std::string sourceUrl;
 };
 
 enum class UpdateStatus {
@@ -31,7 +35,8 @@ struct CheckResult {
     std::string errorMessage;
 };
 
-// 導入済みコンポーネント一覧を取得する。
+// 導入済みコンポーネント一覧を取得する。あわせて、SMP/JSplitterのパッケージのうち
+// package.jsonに"source"(更新元URL)を持つものも一覧に含める(sourceUrlに格納)。
 // componentversion::enumerate() を呼ぶため、メインスレッドで実行すること。
 std::vector<InstalledComponentInfo> GetInstalledComponents();
 

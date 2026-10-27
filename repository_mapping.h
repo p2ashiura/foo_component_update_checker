@@ -45,3 +45,14 @@ void upsertRepositoryMappingEntry(RepositoryMappingEntry const& entry);
 
 // 指定したdllNameのエントリを削除して保存する(見つからなければ何もしない)。
 void removeRepositoryMappingEntry(std::string const& dllName);
+
+// リポジトリ等のURL(様々な表記ゆれ)から source を判定し、
+//   - owner/repoモデル(github/gitlab/codeberg) の場合は outOwner/outRepo
+//   - urlモデル(marc2k3/sourceforge/hyv) の場合は outUrl
+// を埋める。対応サイトのいずれとも解釈できない入力はfalseを返す。
+// Manage Sourcesダイアログでの登録と、パッケージ(SMP/JSplitter)自身が持つ
+// "source" URLの解釈の両方から共用する。
+bool TryParseRepositoryUrl(
+    std::string url, std::string& outSource, std::string& outOwner,
+    std::string& outRepo, std::string& outUrl
+);

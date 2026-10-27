@@ -13,14 +13,16 @@ foobar2000用コンポーネント。導入済みのサードパーティー製�
 
 ## Status / 現在の状態
 
-v2.3.0. Results are now sorted by status: components with an update
-available appear first, then errors, then "unable to compare", with
-already-current components at the bottom — so the items that need your
-attention aren't buried in a long list.
+v3.0.0. Spider Monkey Panel (SMP) and JSplitter packages are now checked
+too. If a package's `package.json` contains a `"source"` key (the URL of
+its repository, which the package author can add when building it), it is
+checked for updates just like a component, with no registration needed.
+Added in response to a request on the issue tracker.
 
-v2.3.0。結果一覧をstatus(状態)でソートするようにした: 更新ありのものが
-最初に、続いてエラー、比較不能、最後に既に最新のもの、という順に並ぶ。
-対応が必要な項目が長いリストの中に埋もれないようにするため。
+v3.0.0。Spider Monkey Panel(SMP)とJSplitterのパッケージも、更新確認の
+対象になった。パッケージの`package.json`に`"source"`キー(リポジトリのURL。
+パッケージの作者がビルド時に追加できる)があれば、コンポーネントと同じように、
+登録不要で更新を確認できる。Issuesでの要望を受けての対応。
 
 ## Features / 機能
 
@@ -40,6 +42,13 @@ v2.3.0。結果一覧をstatus(状態)でソートするようにした: 更新�
   or rely on the shared
   [known-components registry](#remote-registry--既知コンポーネントdb) for
   components that are already listed there
+- Also checks Spider Monkey Panel (SMP) and JSplitter packages: packages
+  under the profile's `foo_spider_monkey_panel\packages` and
+  `foo_uie_jsplitter\packages` folders whose `package.json` has a
+  `"source"` key (the package's repository URL) are checked the same way
+  as components, using the same supported sites. Packages without a
+  `source` key are skipped. In the results they are marked with
+  "(package)" after the name. The package files are only read locally
 - Fetch latest release info and compare versions (SemVer-aware, including
   pre-releases such as `1.0.0-beta`); shows "unable to compare" instead of
   guessing when version formats don't match
@@ -78,6 +87,13 @@ v2.3.0。結果一覧をstatus(状態)でソートするようにした: 更新�
   もしくは、既に
   [共有の既知コンポーネントDB](#remote-registry--既知コンポーネントdb)に
   載っているコンポーネントなら、登録不要でそのまま確認できる
+- Spider Monkey Panel(SMP)とJSplitterのパッケージも確認できる: プロファイル内の
+  `foo_spider_monkey_panel\packages`と`foo_uie_jsplitter\packages`にある
+  パッケージのうち、`package.json`に`"source"`キー(パッケージのリポジトリURL)を
+  持つものが、コンポーネントと同じ対応サイトで同じように確認される。
+  `source`キーを持たないパッケージは対象外。結果一覧では名前の後ろに
+  「(package)」と付く。パッケージのファイルはローカルで読むだけで、
+  外部には送らない
 - 最新リリース情報を取得しバージョン比較(SemVer準拠、`1.0.0-beta`のような
   prerelease表記にも対応)。表記が読み取れない場合は誤判定せず「比較不能」と表示
 - 手動確認(Helpメニューの「Check Third-Party Component Updates」、または

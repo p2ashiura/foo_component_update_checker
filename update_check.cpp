@@ -11,6 +11,8 @@
 #include <cctype>
 #include <sstream>
 #include <regex>
+#include <map>
+#include <set>
 
 // ------------------------------------------------------------------
 // Phase 1: 更新確認のコアロジック(手動確認・自動確認で共用)
@@ -210,6 +212,13 @@ struct FetchedRelease {
     std::string releaseUrl;
 };
 
+// 1回の確認の中で、同じ取得元への問い合わせ結果を使い回すための入れ物。
+struct FetchOutcome {
+    bool ok = false;
+    FetchedRelease release;
+    std::string errorMessage;
+};
+
 bool FetchGitHubLatestRelease(
     std::string const& owner, std::string const& repo, abort_callback& abort,
     FetchedRelease& out, std::string& errorMessage
@@ -222,7 +231,7 @@ bool FetchGitHubLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.3.0");
+        request->add_header("User-Agent", "foo_component_update_checker/3.0.0");
         request->add_header("Accept", "application/vnd.github+json");
 
         file::ptr response = request->run(url, abort);
@@ -256,7 +265,7 @@ bool FetchGitLabLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.3.0");
+        request->add_header("User-Agent", "foo_component_update_checker/3.0.0");
 
         file::ptr response = request->run(url, abort);
         response->read_string_raw(body, abort);
@@ -295,7 +304,7 @@ bool FetchCodebergLatestRelease(
 
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.3.0");
+        request->add_header("User-Agent", "foo_component_update_checker/3.0.0");
 
         file::ptr response = request->run(url, abort);
         response->read_string_raw(body, abort);
@@ -331,7 +340,7 @@ bool FetchMarc2k3LatestRelease(
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.3.0");
+        request->add_header("User-Agent", "foo_component_update_checker/3.0.0");
 
         file::ptr response = request->run(pfc::string8(pageUrl.c_str()), abort);
         response->read_string_raw(body, abort);
@@ -412,7 +421,7 @@ bool FetchSourceForgeLatestRelease(
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.3.0");
+        request->add_header("User-Agent", "foo_component_update_checker/3.0.0");
 
         file::ptr response = request->run(pfc::string8(rssUrl.c_str()), abort);
         response->read_string_raw(body, abort);
@@ -469,7 +478,7 @@ bool FetchHyvLatestRelease(
     try {
         http_client::ptr client = http_client::get();
         http_request::ptr request = client->create_request("GET");
-        request->add_header("User-Agent", "foo_component_update_checker/2.3.0");
+        request->add_header("User-Agent", "foo_component_update_checker/3.0.0");
 
         file::ptr response = request->run(pfc::string8(pageUrl.c_str()), abort);
         response->read_string_raw(body, abort);
@@ -499,6 +508,79 @@ bool FetchHyvLatestRelease(
     return true;
 }
 
+// SMP(Spider Monkey Panel)とJSplitterは、スクリプトを「パッケージ」として
+// プロファイル配下の packages\{id}\ に展開する。各パッケージのフォルダ直下の
+// package.json には id / name / version が入っており、パッケージ作者がビルド時に
+// "source"(更新元のURL)を追加していれば、それを取得元としてそのまま使える。
+//
+// version と source の両方を持つものだけを対象にし、どちらかが無い・読めない
+// パッケージは静かにスキップする(DP-0009: 推測で補わない / Fail Open)。
+// 同じパッケージがSMPとJSplitterの両方に入っている場合は、idで重複排除する。
+// 通常のコンポーネントと違い、DLL名ではなくidで識別する。
+void AppendInstalledPackages(std::vector<InstalledComponentInfo>& installed) {
+    static const char* const packageHosts[] = {
+        "foo_spider_monkey_panel",
+        "foo_uie_jsplitter",
+    };
+
+    std::set<std::string> seen;
+
+    for (const char* host : packageHosts) {
+        pfc::list_t<pfc::string8> dirs;
+
+        try {
+            pfc::string8 packagesPath = core_api::pathInProfile(host);
+            packagesPath.add_filename("packages");
+
+            directory_callback_retrieveList<pfc::list_t<pfc::string8>> callback(dirs, false, true);
+            filesystem::g_list_directory(packagesPath, callback, fb2k::noAbort);
+        } catch (std::exception const&) {
+            continue; // そのコンポーネントを導入していない、またはフォルダが無い場合
+        }
+
+        for (t_size i = 0; i < dirs.get_count(); ++i) {
+            try {
+                pfc::string8 jsonPath = dirs[i];
+                jsonPath.add_filename("package.json");
+
+                file::ptr f;
+                filesystem::g_open_read(f, jsonPath, fb2k::noAbort);
+
+                pfc::string8 body;
+                f->read_string_raw(body, fb2k::noAbort);
+
+                nlohmann::json parsed = nlohmann::json::parse(body.c_str());
+                std::string id = parsed.value("id", "");
+                std::string name = parsed.value("name", "");
+                std::string version = parsed.value("version", "");
+                std::string source = parsed.value("source", "");
+
+                if (version.empty() || source.empty()) continue;
+
+                // idが無い場合のみnameで代用する。どちらも無ければ識別できないのでスキップ。
+                std::string key = id.empty() ? name : id;
+                if (key.empty()) continue;
+
+                std::transform(key.begin(), key.end(), key.begin(),
+                    [](unsigned char c) { return (char)std::tolower(c); });
+                if (!seen.insert(key).second) continue; // 既に別のフォルダで見つけた
+
+                InstalledComponentInfo info;
+                info.fileName = id.empty() ? name : id;
+                // 結果一覧でコンポーネントと区別できるよう、名前の後ろに「(package)」を付ける。
+                info.displayName = (name.empty() ? info.fileName : name) + " (package)";
+                info.installedVersion = version;
+                info.sourceUrl = source;
+                installed.push_back(std::move(info));
+            } catch (std::exception const&) {
+                // package.jsonが無い・壊れている・想定外の型、などは、そのパッケージだけ
+                // 静かにスキップする(他のパッケージの確認は続ける)。
+                continue;
+            }
+        }
+    }
+}
+
 } // namespace
 
 std::vector<InstalledComponentInfo> GetInstalledComponents() {
@@ -516,6 +598,9 @@ std::vector<InstalledComponentInfo> GetInstalledComponents() {
         info.installedVersion = version.c_str();
         installed.push_back(std::move(info));
     }
+
+    // SMP/JSplitterのパッケージ(package.jsonに"source"を持つもの)も一覧に加える。
+    AppendInstalledPackages(installed);
 
     return installed;
 }
@@ -549,21 +634,42 @@ std::vector<CheckResult> RunUpdateCheck(
         results.push_back(std::move(r));
     }
 
-    for (auto const& comp : installed) {
-        // 1. ユーザーが明示的に登録した内容を最優先する
-        RepositoryMappingEntry mapping;
-        bool found = findRepositoryMapping(mappingEntries, comp.fileName, mapping);
+    // 同じ取得元(同一リポジトリ等)を指すものは、今回の確認の中では1回だけ問い合わせる。
+    // 未認証のGitHub APIは60回/時の制限があるため、無駄な呼び出しを避ける。
+    std::map<std::string, FetchOutcome> fetchCache;
 
-        // 2. ユーザー登録が無ければ、Remote Registry(known_components.json)を参照する
-        if (!found) {
-            RemoteRegistryEntry remote;
-            if (findRemoteRegistryEntry(remoteEntries, comp.fileName, remote)) {
-                mapping.dllName = remote.dllName;
-                mapping.source = remote.source;
-                mapping.owner = remote.owner;
-                mapping.repo = remote.repo;
-                mapping.url = remote.url;
+    for (auto const& comp : installed) {
+        RepositoryMappingEntry mapping;
+        bool found = false;
+
+        if (!comp.sourceUrl.empty()) {
+            // パッケージ(SMP/JSplitter): 自身が持つ更新元URLをそのまま取得元にする。
+            // Manage Sourcesで貼り付けるURLと同じサイト判定を通すため、
+            // 対応サイト以外のURLは解釈に失敗し、静かにスキップされる(Fail Open)。
+            std::string source, owner, repo, url;
+            if (TryParseRepositoryUrl(comp.sourceUrl, source, owner, repo, url)) {
+                mapping.dllName = comp.fileName;
+                mapping.source = source;
+                mapping.owner = owner;
+                mapping.repo = repo;
+                mapping.url = url;
                 found = true;
+            }
+        } else {
+            // 1. ユーザーが明示的に登録した内容を最優先する
+            found = findRepositoryMapping(mappingEntries, comp.fileName, mapping);
+
+            // 2. ユーザー登録が無ければ、Remote Registry(known_components.json)を参照する
+            if (!found) {
+                RemoteRegistryEntry remote;
+                if (findRemoteRegistryEntry(remoteEntries, comp.fileName, remote)) {
+                    mapping.dllName = remote.dllName;
+                    mapping.source = remote.source;
+                    mapping.owner = remote.owner;
+                    mapping.repo = remote.repo;
+                    mapping.url = remote.url;
+                    found = true;
+                }
             }
         }
 
@@ -574,32 +680,39 @@ std::vector<CheckResult> RunUpdateCheck(
         r.displayName = comp.displayName;
         r.installedVersion = comp.installedVersion;
 
-        FetchedRelease release;
-        std::string errorMessage;
-        bool fetchOk = false;
+        std::string cacheKey = mapping.source + "|" + mapping.owner + "/" + mapping.repo + "|" + mapping.url;
+        auto cached = fetchCache.find(cacheKey);
 
-        if (mapping.source == "gitlab") {
-            fetchOk = FetchGitLabLatestRelease(mapping.owner, mapping.repo, abort, release, errorMessage);
-        } else if (mapping.source == "codeberg") {
-            fetchOk = FetchCodebergLatestRelease(mapping.owner, mapping.repo, abort, release, errorMessage);
-        } else if (mapping.source == "marc2k3") {
-            fetchOk = FetchMarc2k3LatestRelease(mapping.url, abort, release, errorMessage);
-        } else if (mapping.source == "sourceforge") {
-            fetchOk = FetchSourceForgeLatestRelease(mapping.url, abort, release, errorMessage);
-        } else if (mapping.source == "hyv") {
-            fetchOk = FetchHyvLatestRelease(mapping.url, abort, release, errorMessage);
-        } else {
-            // "github"、または未設定(後方互換)の場合はGitHubとして扱う。
-            fetchOk = FetchGitHubLatestRelease(mapping.owner, mapping.repo, abort, release, errorMessage);
+        if (cached == fetchCache.end()) {
+            FetchOutcome outcome;
+
+            if (mapping.source == "gitlab") {
+                outcome.ok = FetchGitLabLatestRelease(mapping.owner, mapping.repo, abort, outcome.release, outcome.errorMessage);
+            } else if (mapping.source == "codeberg") {
+                outcome.ok = FetchCodebergLatestRelease(mapping.owner, mapping.repo, abort, outcome.release, outcome.errorMessage);
+            } else if (mapping.source == "marc2k3") {
+                outcome.ok = FetchMarc2k3LatestRelease(mapping.url, abort, outcome.release, outcome.errorMessage);
+            } else if (mapping.source == "sourceforge") {
+                outcome.ok = FetchSourceForgeLatestRelease(mapping.url, abort, outcome.release, outcome.errorMessage);
+            } else if (mapping.source == "hyv") {
+                outcome.ok = FetchHyvLatestRelease(mapping.url, abort, outcome.release, outcome.errorMessage);
+            } else {
+                // "github"、または未設定(後方互換)の場合はGitHubとして扱う。
+                outcome.ok = FetchGitHubLatestRelease(mapping.owner, mapping.repo, abort, outcome.release, outcome.errorMessage);
+            }
+
+            cached = fetchCache.emplace(cacheKey, std::move(outcome)).first;
         }
 
-        if (fetchOk) {
-            r.latestVersion = release.tagName;
-            r.releaseUrl = release.releaseUrl;
+        FetchOutcome const& outcome = cached->second;
+
+        if (outcome.ok) {
+            r.latestVersion = outcome.release.tagName;
+            r.releaseUrl = outcome.release.releaseUrl;
             r.status = compareVersions(r.installedVersion, r.latestVersion);
         } else {
             r.status = UpdateStatus::Error;
-            r.errorMessage = errorMessage;
+            r.errorMessage = outcome.errorMessage;
         }
 
         results.push_back(std::move(r));
